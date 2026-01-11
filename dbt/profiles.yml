@@ -1,0 +1,40 @@
+gtfs_mcp:
+  outputs:
+    # MotherDuckの開発用環境
+    motherduck:
+      type: duckdb
+      path: "md:gtfs-mcp?motherduck_token={{env_var('MOTHERDUCK_ACCESS_TOKEN')}}"
+      threads: 4
+      extensions:
+        - httpfs
+        - spatial
+      plugins:
+        - module: excel
+      secrets:
+        - type: s3
+          region: "{{ env_var('AWS_DEFAULT_REGION') }}"
+          key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+          secret: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+    
+    # ローカルDuckDB環境
+    local:
+      type: duckdb
+      path: catalog.duckdb
+      threads: 4
+      extensions:
+        - httpfs
+        - spatial
+        - name: h3
+          repo: community
+      plugins:
+        - module: excel
+      secrets:
+        - type: s3
+          region: "{{ env_var('AWS_DEFAULT_REGION') }}"
+          key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+          secret: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+    
+        # database: main
+
+  # Default target
+  target: motherduck
