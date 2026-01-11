@@ -84,15 +84,41 @@ def _raise_anthropic_error(e: Exception) -> None:
         text=message,
     ) from e
 
-def call_claude_with_motherduck_mcp(prompt: str, anthropic_key: str, motherduck_token : str, tools: List, max_token: int=1000, timeout: int|float = 240) -> dict:
+
+def _split_system_messages(messages: list[dict]) -> tuple[str, list[dict]]:
+    system_parts: list[str] = []
+    filtered: list[dict] = []
+
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        content = m.get("content")
+
+        if role == "system":
+            if isinstance(content, str) and content.strip():
+                system_parts.append(content.strip())
+            continue
+
+        # Anthropic Messages API expects roles like "user" / "assistant"
+        filtered.append(m)
+
+    return "\n\n".join(system_parts).strip(), filtered
+
+def call_claude_with_motherduck_mcp(messages: list[dict], anthropic_key: str, motherduck_token: str, claude_model: str, tools: List, max_token: int=1000, timeout: int|float = 240) -> dict:
 
     client = anthropic.Anthropic(api_key=anthropic_key, timeout=timeout)
 
+    system, filtered_messages = _split_system_messages(messages)
+    if not filtered_messages:
+        raise ValueError("messages must include at least one non-system message")
+
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-5",
+            model=claude_model,
             max_tokens=max_token,
-            messages=[{"role": "user", "content": prompt}],
+            system=system or None,
+            messages=filtered_messages,
             extra_headers={
                 # MCP connector beta header (required)
                 "anthropic-beta": "mcp-client-2025-11-20",
