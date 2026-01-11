@@ -3,7 +3,7 @@ gtfs_mcp:
     # MotherDuckの開発用環境
     motherduck:
       type: duckdb
-      path: "md:gtfs-mcp?motherduck_token={{env_var('MOTHERDUCK_ACCESS_TOKEN')}}"
+      path: "md:gtfs_mcp?motherduck_token={{env_var('MOTHERDUCK_ACCESS_TOKEN')}}"
       threads: 4
       extensions:
         - httpfs
