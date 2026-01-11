@@ -1,0 +1,22 @@
+-- GTFS SQL models for MotherDuck / DuckDB
+-- Generated: 2026-01-08
+--
+-- Assumptions:
+-- - Raw GTFS tables exist as: agency, stops, routes, trips, stop_times, calendar, calendar_dates, shapes, frequencies, transfers
+-- - stop_times.arrival_time / departure_time are "seconds since midnight" (can exceed 86400 for after-midnight service)
+-- - calendar.start_date / end_date are DATE
+--
+-- Tips:
+-- - These files create views in schema `gtfs`. If you prefer another schema, search/replace `gtfs.`.
+-- - If your raw tables live in another schema, qualify them (e.g., raw.calendar).
+create schema if not exists gtfs;
+
+-- Route pattern summary: one row per (route_id, direction_id, shape_id) with trip counts.
+create or replace view gtfs.route_patterns as
+select
+  t.route_id,
+  t.direction_id,
+  t.shape_id,
+  count(*) as trip_count
+from trips t
+group by 1,2,3;
