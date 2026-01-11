@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# translations （必要なら `--file routes` のように変更可能）
-fle="translations"
-out="$dir/row_gtfs__${fle}_all.sql"
+# trips （必要なら `--file routes` のように変更可能）
+fle="trips"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,13 +147,16 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS table_name,
-    NULL::VARCHAR AS field_name,
-    NULL::VARCHAR AS language,
-    NULL::VARCHAR AS translation,
-    NULL::VARCHAR AS record_id,
-    NULL::VARCHAR AS record_sub_id,
-    NULL::VARCHAR AS field_value
+    NULL::VARCHAR AS route_id,
+    NULL::VARCHAR AS service_id,
+    NULL::VARCHAR AS trip_id,
+    NULL::VARCHAR AS trip_headsign,
+    NULL::VARCHAR AS trip_short_name,
+    NULL::INTEGER AS direction_id,
+    NULL::VARCHAR AS block_id,
+    NULL::VARCHAR AS shape_id,
+    NULL::INTEGER AS wheelchair_accessible,
+    NULL::INTEGER AS bikes_allowed
   WHERE FALSE
 {% else %}
 
@@ -167,13 +170,16 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.table_name,
-    t.field_name,
-    t.language,
-    t.translation,
-    t.record_id,
-    t.record_sub_id,
-    t.field_value
+    t.route_id,
+    t.service_id,
+    t.trip_id,
+    t.trip_headsign,
+    t.trip_short_name,
+    TRY_CAST(t.direction_id AS INTEGER) AS direction_id,
+    t.block_id,
+    t.shape_id,
+    TRY_CAST(t.wheelchair_accessible AS INTEGER) AS wheelchair_accessible,
+    TRY_CAST(t.bikes_allowed AS INTEGER) AS bikes_allowed
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -185,13 +191,16 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'table_name':'VARCHAR',
-      'field_name':'VARCHAR',
-      'language':'VARCHAR',
-      'translation':'VARCHAR',
-      'record_id':'VARCHAR',
-      'record_sub_id':'VARCHAR',
-      'field_value':'VARCHAR'
+      'route_id':'VARCHAR',
+      'service_id':'VARCHAR',
+      'trip_id':'VARCHAR',
+      'trip_headsign':'VARCHAR',
+      'trip_short_name':'VARCHAR',
+      'direction_id':'VARCHAR',
+      'block_id':'VARCHAR',
+      'shape_id':'VARCHAR',
+      'wheelchair_accessible':'VARCHAR',
+      'bikes_allowed':'VARCHAR'
     }
   ) AS t
 {% endfor %}
@@ -202,18 +211,35 @@ WITH source AS (
     '{{ id }}' AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS table_name,
-    NULL::VARCHAR AS field_name,
-    NULL::VARCHAR AS language,
-    NULL::VARCHAR AS translation,
-    NULL::VARCHAR AS record_id,
-    NULL::VARCHAR AS record_sub_id,
-    NULL::VARCHAR AS field_value
+    NULL::VARCHAR AS route_id,
+    NULL::VARCHAR AS service_id,
+    NULL::VARCHAR AS trip_id,
+    NULL::VARCHAR AS trip_headsign,
+    NULL::VARCHAR AS trip_short_name,
+    NULL::INTEGER AS direction_id,
+    NULL::VARCHAR AS block_id,
+    NULL::VARCHAR AS shape_id,
+    NULL::INTEGER AS wheelchair_accessible,
+    NULL::INTEGER AS bikes_allowed
 {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||route_id as route_id,
+  gtfs_id||service_id as service_id,
+  gtfs_id||trip_id as trip_id,
+  trip_headsign,
+  trip_short_name,
+  gtfs_id||direction_id as direction_id,
+  gtfs_id||block_id as block_id,
+  gtfs_id||shape_id as shape_id,
+  wheelchair_accessible,
+  bikes_allowed
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

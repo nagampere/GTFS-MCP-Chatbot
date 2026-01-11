@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# fare_rules （必要なら `--file routes` のように変更可能）
-fle="fare_rules"
-out="$dir/row_gtfs__${fle}_all.sql"
+# attributions （必要なら `--file routes` のように変更可能）
+fle="attributions"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,11 +147,17 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS fare_id,
+    NULL::VARCHAR AS attribution_id,
+    NULL::VARCHAR AS agency_id,
     NULL::VARCHAR AS route_id,
-    NULL::VARCHAR AS origin_id,
-    NULL::VARCHAR AS destination_id,
-    NULL::VARCHAR AS contains_id
+    NULL::VARCHAR AS trip_id,
+    NULL::VARCHAR AS organization_name,
+    NULL::VARCHAR AS is_producer,
+    NULL::VARCHAR AS is_operator,
+    NULL::VARCHAR AS is_authority,
+    NULL::VARCHAR AS attribution_url,
+    NULL::VARCHAR AS attribution_email,
+    NULL::VARCHAR AS attribution_phone
   WHERE FALSE
 {% else %}
 
@@ -165,11 +171,17 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.fare_id,
+    t.attribution_id,
+    t.agency_id,
     t.route_id,
-    t.origin_id,
-    t.destination_id,
-    t.contains_id
+    t.trip_id,
+    t.organization_name,
+    t.is_producer,
+    t.is_operator,
+    t.is_authority,
+    t.attribution_url,
+    t.attribution_email,
+    t.attribution_phone
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -181,32 +193,60 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'fare_id':'VARCHAR',
+      'attribution_id':'VARCHAR',
+      'agency_id':'VARCHAR',
       'route_id':'VARCHAR',
-      'origin_id':'VARCHAR',
-      'destination_id':'VARCHAR',
-      'contains_id':'VARCHAR'
+      'trip_id':'VARCHAR',
+      'organization_name':'VARCHAR',
+      'is_producer':'VARCHAR',
+      'is_operator':'VARCHAR',
+      'is_authority':'VARCHAR',
+      'attribution_url':'VARCHAR',
+      'attribution_email':'VARCHAR',
+      'attribution_phone':'VARCHAR'
     }
   ) AS t
 {% endfor %}
 
-{% for id in missing_ids %}
-  {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
-  SELECT
-    '{{ id }}' AS gtfs_id,
-    NULL::VARCHAR AS _path,
-    TRUE AS _missing,
-    NULL::VARCHAR AS fare_id,
-    NULL::VARCHAR AS route_id,
-    NULL::VARCHAR AS origin_id,
-    NULL::VARCHAR AS destination_id,
-    NULL::VARCHAR AS contains_id
-{% endfor %}
+-- {% for id in missing_ids %}
+--   {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
+--   SELECT
+--     '{{ id }}' AS gtfs_id,
+--     NULL::VARCHAR AS _path,
+--     TRUE AS _missing,
+--     NULL::VARCHAR AS attribution_id,
+--     NULL::VARCHAR AS agency_id,
+--     NULL::VARCHAR AS route_id,
+--     NULL::VARCHAR AS trip_id,
+--     NULL::VARCHAR AS organization_name,
+--     NULL::VARCHAR AS is_producer,
+--     NULL::VARCHAR AS is_operator,
+--     NULL::VARCHAR AS is_authority,
+--     NULL::VARCHAR AS attribution_url,
+--     NULL::VARCHAR AS attribution_email,
+--     NULL::VARCHAR AS attribution_phone
+-- {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||attribution_id as attribution_id,
+  agency_id,
+  gtfs_id||route_id as route_id,
+  gtfs_id||trip_id as trip_id,
+  organization_name,
+  is_producer,
+  is_operator,
+  is_authority,
+  attribution_url,
+  attribution_email,
+  attribution_phone
+FROM source
 "
+
 
 printf '%s\n' "$sql" > "$out"
 echo "Wrote $out"

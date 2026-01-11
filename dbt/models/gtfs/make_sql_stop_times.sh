@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# trips （必要なら `--file routes` のように変更可能）
-fle="trips"
-out="$dir/row_gtfs__${fle}_all.sql"
+# stop_times （必要なら `--file routes` のように変更可能）
+fle="stop_times"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,16 +147,18 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS route_id,
-    NULL::VARCHAR AS service_id,
     NULL::VARCHAR AS trip_id,
-    NULL::VARCHAR AS trip_headsign,
-    NULL::VARCHAR AS trip_short_name,
-    NULL::INTEGER AS direction_id,
-    NULL::VARCHAR AS block_id,
-    NULL::VARCHAR AS shape_id,
-    NULL::INTEGER AS wheelchair_accessible,
-    NULL::INTEGER AS bikes_allowed
+    NULL::VARCHAR AS arrival_time,
+    NULL::VARCHAR AS departure_time,
+    NULL::VARCHAR AS stop_id,
+    NULL::INTEGER AS stop_sequence,
+    NULL::VARCHAR AS stop_headsign,
+    NULL::INTEGER AS pickup_type,
+    NULL::INTEGER AS drop_off_type,
+    NULL::INTEGER AS continuous_pickup,
+    NULL::INTEGER AS continuous_drop_off,
+    NULL::DOUBLE  AS shape_dist_traveled,
+    NULL::INTEGER AS timepoint
   WHERE FALSE
 {% else %}
 
@@ -170,16 +172,18 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.route_id,
-    t.service_id,
     t.trip_id,
-    t.trip_headsign,
-    t.trip_short_name,
-    TRY_CAST(t.direction_id AS INTEGER) AS direction_id,
-    t.block_id,
-    t.shape_id,
-    TRY_CAST(t.wheelchair_accessible AS INTEGER) AS wheelchair_accessible,
-    TRY_CAST(t.bikes_allowed AS INTEGER) AS bikes_allowed
+    t.arrival_time,
+    t.departure_time,
+    t.stop_id,
+    TRY_CAST(t.stop_sequence AS INTEGER) AS stop_sequence,
+    t.stop_headsign,
+    TRY_CAST(t.pickup_type AS INTEGER) AS pickup_type,
+    TRY_CAST(t.drop_off_type AS INTEGER) AS drop_off_type,
+    TRY_CAST(t.continuous_pickup AS INTEGER) AS continuous_pickup,
+    TRY_CAST(t.continuous_drop_off AS INTEGER) AS continuous_drop_off,
+    TRY_CAST(t.shape_dist_traveled AS DOUBLE) AS shape_dist_traveled,
+    TRY_CAST(t.timepoint AS INTEGER) AS timepoint
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -191,16 +195,18 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'route_id':'VARCHAR',
-      'service_id':'VARCHAR',
       'trip_id':'VARCHAR',
-      'trip_headsign':'VARCHAR',
-      'trip_short_name':'VARCHAR',
-      'direction_id':'VARCHAR',
-      'block_id':'VARCHAR',
-      'shape_id':'VARCHAR',
-      'wheelchair_accessible':'VARCHAR',
-      'bikes_allowed':'VARCHAR'
+      'arrival_time':'VARCHAR',
+      'departure_time':'VARCHAR',
+      'stop_id':'VARCHAR',
+      'stop_sequence':'VARCHAR',
+      'stop_headsign':'VARCHAR',
+      'pickup_type':'VARCHAR',
+      'drop_off_type':'VARCHAR',
+      'continuous_pickup':'VARCHAR',
+      'continuous_drop_off':'VARCHAR',
+      'shape_dist_traveled':'VARCHAR',
+      'timepoint':'VARCHAR'
     }
   ) AS t
 {% endfor %}
@@ -211,21 +217,39 @@ WITH source AS (
     '{{ id }}' AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS route_id,
-    NULL::VARCHAR AS service_id,
     NULL::VARCHAR AS trip_id,
-    NULL::VARCHAR AS trip_headsign,
-    NULL::VARCHAR AS trip_short_name,
-    NULL::INTEGER AS direction_id,
-    NULL::VARCHAR AS block_id,
-    NULL::VARCHAR AS shape_id,
-    NULL::INTEGER AS wheelchair_accessible,
-    NULL::INTEGER AS bikes_allowed
+    NULL::VARCHAR AS arrival_time,
+    NULL::VARCHAR AS departure_time,
+    NULL::VARCHAR AS stop_id,
+    NULL::INTEGER AS stop_sequence,
+    NULL::VARCHAR AS stop_headsign,
+    NULL::INTEGER AS pickup_type,
+    NULL::INTEGER AS drop_off_type,
+    NULL::INTEGER AS continuous_pickup,
+    NULL::INTEGER AS continuous_drop_off,
+    NULL::DOUBLE  AS shape_dist_traveled,
+    NULL::INTEGER AS timepoint
 {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||trip_id as trip_id,
+  arrival_time,
+  departure_time,
+  gtfs_id||stop_id as stop_id,
+  stop_sequence,
+  stop_headsign,
+  pickup_type,
+  drop_off_type,
+  continuous_pickup,
+  continuous_drop_off,
+  shape_dist_traveled,
+  timepoint
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

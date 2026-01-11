@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# fare_attributes （必要なら `--file routes` のように変更可能）
-fle="fare_attributes"
-out="$dir/row_gtfs__${fle}_all.sql"
+# agency （必要なら `--file routes` のように変更可能）
+fle="agency"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,13 +147,14 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS fare_id,
-    NULL::DOUBLE  AS price,
-    NULL::VARCHAR AS currency_type,
-    NULL::INTEGER AS payment_method,
-    NULL::INTEGER AS transfers,
     NULL::VARCHAR AS agency_id,
-    NULL::INTEGER AS transfer_duration
+    NULL::VARCHAR AS agency_name,
+    NULL::VARCHAR AS agency_url,
+    NULL::VARCHAR AS agency_timezone,
+    NULL::VARCHAR AS agency_lang,
+    NULL::VARCHAR AS agency_phone,
+    NULL::VARCHAR AS agency_fare_url,
+    NULL::VARCHAR AS agency_email
   WHERE FALSE
 {% else %}
 
@@ -167,13 +168,14 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.fare_id,
-    TRY_CAST(t.price AS DOUBLE) AS price,
-    t.currency_type,
-    TRY_CAST(t.payment_method AS INTEGER) AS payment_method,
-    TRY_CAST(t.transfers AS INTEGER) AS transfers,
-    t.agency_id,
-    TRY_CAST(t.transfer_duration AS INTEGER) AS transfer_duration
+    t.agency_id AS agency_id,
+    t.agency_name,
+    t.agency_url,
+    t.agency_timezone,
+    t.agency_lang,
+    t.agency_phone,
+    t.agency_fare_url,
+    t.agency_email
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -185,31 +187,33 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'fare_id':'VARCHAR',
-      'price':'VARCHAR',
-      'currency_type':'VARCHAR',
-      'payment_method':'VARCHAR',
-      'transfers':'VARCHAR',
       'agency_id':'VARCHAR',
-      'transfer_duration':'VARCHAR'
+      'agency_name':'VARCHAR',
+      'agency_url':'VARCHAR',
+      'agency_timezone':'VARCHAR',
+      'agency_lang':'VARCHAR',
+      'agency_phone':'VARCHAR',
+      'agency_fare_url':'VARCHAR',
+      'agency_email':'VARCHAR'
     }
   ) AS t
 {% endfor %}
 
-{% for id in missing_ids %}
-  {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
-  SELECT
-    '{{ id }}' AS gtfs_id,
-    NULL::VARCHAR AS _path,
-    TRUE AS _missing,
-    NULL::VARCHAR AS fare_id,
-    NULL::DOUBLE  AS price,
-    NULL::VARCHAR AS currency_type,
-    NULL::INTEGER AS payment_method,
-    NULL::INTEGER AS transfers,
-    NULL::VARCHAR AS agency_id,
-    NULL::INTEGER AS transfer_duration
-{% endfor %}
+-- {% for id in missing_ids %}
+--   {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
+--   SELECT
+--     '{{ id }}' AS gtfs_id,
+--     NULL::VARCHAR AS _path,
+--     TRUE AS _missing,
+--     '{{ id }}' AS agency_id,
+--     NULL::VARCHAR AS agency_name,
+--     NULL::VARCHAR AS agency_url,
+--     NULL::VARCHAR AS agency_timezone,
+--     NULL::VARCHAR AS agency_lang,
+--     NULL::VARCHAR AS agency_phone,
+--     NULL::VARCHAR AS agency_fare_url,
+--     NULL::VARCHAR AS agency_email
+-- {% endfor %}
 
 {% endif %}
 )

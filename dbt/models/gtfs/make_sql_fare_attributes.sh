@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# calendar_dates （必要なら `--file routes` のように変更可能）
-fle="calendar_dates"
-out="$dir/row_gtfs__${fle}_all.sql"
+# fare_attributes （必要なら `--file routes` のように変更可能）
+fle="fare_attributes"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,9 +147,13 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS service_id,
-    NULL::DATE    AS date,
-    NULL::INTEGER AS exception_type
+    NULL::VARCHAR AS fare_id,
+    NULL::DOUBLE  AS price,
+    NULL::VARCHAR AS currency_type,
+    NULL::INTEGER AS payment_method,
+    NULL::INTEGER AS transfers,
+    NULL::VARCHAR AS agency_id,
+    NULL::INTEGER AS transfer_duration
   WHERE FALSE
 {% else %}
 
@@ -163,9 +167,13 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.service_id,
-    TRY_CAST(try_strptime(t.date, '%Y%m%d') AS DATE) AS date,
-    TRY_CAST(t.exception_type AS INTEGER) AS exception_type
+    t.fare_id,
+    TRY_CAST(t.price AS DOUBLE) AS price,
+    t.currency_type,
+    TRY_CAST(t.payment_method AS INTEGER) AS payment_method,
+    TRY_CAST(t.transfers AS INTEGER) AS transfers,
+    t.agency_id,
+    TRY_CAST(t.transfer_duration AS INTEGER) AS transfer_duration
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -177,9 +185,13 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'service_id':'VARCHAR',
-      'date':'VARCHAR',
-      'exception_type':'VARCHAR'
+      'fare_id':'VARCHAR',
+      'price':'VARCHAR',
+      'currency_type':'VARCHAR',
+      'payment_method':'VARCHAR',
+      'transfers':'VARCHAR',
+      'agency_id':'VARCHAR',
+      'transfer_duration':'VARCHAR'
     }
   ) AS t
 {% endfor %}
@@ -190,14 +202,29 @@ WITH source AS (
     '{{ id }}' AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS service_id,
-    NULL::DATE    AS date,
-    NULL::INTEGER AS exception_type
+    NULL::VARCHAR AS fare_id,
+    NULL::DOUBLE  AS price,
+    NULL::VARCHAR AS currency_type,
+    NULL::INTEGER AS payment_method,
+    NULL::INTEGER AS transfers,
+    NULL::VARCHAR AS agency_id,
+    NULL::INTEGER AS transfer_duration
 {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||fare_id as fare_id,
+  price,
+  currency_type,
+  payment_method,
+  transfers,
+  agency_id,
+  transfer_duration
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

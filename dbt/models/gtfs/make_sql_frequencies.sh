@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# routes （必要なら `--file routes` のように変更可能）
-fle="routes"
-out="$dir/row_gtfs__${fle}_all.sql"
+# frequencies （必要なら `--file routes` のように変更可能）
+fle="frequencies"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,19 +147,11 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS route_id,
-    NULL::VARCHAR AS agency_id,
-    NULL::VARCHAR AS route_short_name,
-    NULL::VARCHAR AS route_long_name,
-    NULL::VARCHAR AS route_desc,
-    NULL::INTEGER AS route_type,
-    NULL::VARCHAR AS route_url,
-    NULL::VARCHAR AS route_color,
-    NULL::VARCHAR AS route_text_color,
-    NULL::INTEGER AS route_sort_order,
-    NULL::INTEGER AS continuous_pickup,
-    NULL::INTEGER AS continuous_drop_off,
-    NULL::VARCHAR AS network_id
+    NULL::VARCHAR AS trip_id,
+    NULL::VARCHAR AS start_time,
+    NULL::VARCHAR AS end_time,
+    NULL::INTEGER AS headway_secs,
+    NULL::INTEGER AS exact_times
   WHERE FALSE
 {% else %}
 
@@ -173,19 +165,11 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.route_id,
-    t.agency_id,
-    t.route_short_name,
-    t.route_long_name,
-    t.route_desc,
-    TRY_CAST(t.route_type AS INTEGER) AS route_type,
-    t.route_url,
-    t.route_color,
-    t.route_text_color,
-    TRY_CAST(t.route_sort_order AS INTEGER) AS route_sort_order,
-    TRY_CAST(t.continuous_pickup AS INTEGER) AS continuous_pickup,
-    TRY_CAST(t.continuous_drop_off AS INTEGER) AS continuous_drop_off,
-    t.network_id
+    t.trip_id,
+    t.start_time,
+    t.end_time,
+    TRY_CAST(t.headway_secs AS INTEGER) AS headway_secs,
+    TRY_CAST(t.exact_times AS INTEGER) AS exact_times
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -197,19 +181,11 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'route_id':'VARCHAR',
-      'agency_id':'VARCHAR',
-      'route_short_name':'VARCHAR',
-      'route_long_name':'VARCHAR',
-      'route_desc':'VARCHAR',
-      'route_type':'VARCHAR',
-      'route_url':'VARCHAR',
-      'route_color':'VARCHAR',
-      'route_text_color':'VARCHAR',
-      'route_sort_order':'VARCHAR',
-      'continuous_pickup':'VARCHAR',
-      'continuous_drop_off':'VARCHAR',
-      'network_id':'VARCHAR'
+      'trip_id':'VARCHAR',
+      'start_time':'VARCHAR',
+      'end_time':'VARCHAR',
+      'headway_secs':'VARCHAR',
+      'exact_times':'VARCHAR'
     }
   ) AS t
 {% endfor %}
@@ -220,24 +196,25 @@ WITH source AS (
 --     '{{ id }}' AS gtfs_id,
 --     NULL::VARCHAR AS _path,
 --     TRUE AS _missing,
---     NULL::VARCHAR AS route_id,
---     NULL::VARCHAR AS agency_id,
---     NULL::VARCHAR AS route_short_name,
---     NULL::VARCHAR AS route_long_name,
---     NULL::VARCHAR AS route_desc,
---     NULL::INTEGER AS route_type,
---     NULL::VARCHAR AS route_url,
---     NULL::VARCHAR AS route_color,
---     NULL::VARCHAR AS route_text_color,
---     NULL::INTEGER AS route_sort_order,
---     NULL::INTEGER AS continuous_pickup,
---     NULL::INTEGER AS continuous_drop_off,
---     NULL::VARCHAR AS network_id
+--     NULL::VARCHAR AS trip_id,
+--     NULL::VARCHAR AS start_time,
+--     NULL::VARCHAR AS end_time,
+--     NULL::INTEGER AS headway_secs,
+--     NULL::INTEGER AS exact_times
 -- {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||trip_id as trip_id,
+  start_time,
+  end_time,
+  headway_secs,
+  exact_times
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

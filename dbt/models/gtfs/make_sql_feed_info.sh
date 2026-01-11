@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# transfers （必要なら `--file routes` のように変更可能）
-fle="transfers"
-out="$dir/row_gtfs__${fle}_all.sql"
+# feed_info （必要なら `--file routes` のように変更可能）
+fle="feed_info"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,10 +147,14 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS from_stop_id,
-    NULL::VARCHAR AS to_stop_id,
-    NULL::INTEGER AS transfer_type,
-    NULL::INTEGER AS min_transfer_time
+    NULL::VARCHAR AS feed_publisher_name,
+    NULL::VARCHAR AS feed_publisher_url,
+    NULL::VARCHAR AS feed_lang,
+    NULL::DATE    AS feed_start_date,
+    NULL::DATE    AS feed_end_date,
+    NULL::VARCHAR AS feed_version,
+    NULL::VARCHAR AS feed_contact_email,
+    NULL::VARCHAR AS feed_contact_url
   WHERE FALSE
 {% else %}
 
@@ -164,10 +168,14 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.from_stop_id,
-    t.to_stop_id,
-    TRY_CAST(t.transfer_type AS INTEGER) AS transfer_type,
-    TRY_CAST(t.min_transfer_time AS INTEGER) AS min_transfer_time
+    t.feed_publisher_name,
+    t.feed_publisher_url,
+    t.feed_lang,
+    TRY_CAST(try_strptime(t.feed_start_date, '%Y%m%d') AS DATE) AS feed_start_date,
+    TRY_CAST(try_strptime(t.feed_end_date, '%Y%m%d') AS DATE) AS feed_end_date,
+    t.feed_version,
+    t.feed_contact_email,
+    t.feed_contact_url
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -179,10 +187,14 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'from_stop_id':'VARCHAR',
-      'to_stop_id':'VARCHAR',
-      'transfer_type':'VARCHAR',
-      'min_transfer_time':'VARCHAR'
+      'feed_publisher_name':'VARCHAR',
+      'feed_publisher_url':'VARCHAR',
+      'feed_lang':'VARCHAR',
+      'feed_start_date':'VARCHAR',
+      'feed_end_date':'VARCHAR',
+      'feed_version':'VARCHAR',
+      'feed_contact_email':'VARCHAR',
+      'feed_contact_url':'VARCHAR'
     }
   ) AS t
 {% endfor %}
@@ -193,15 +205,31 @@ WITH source AS (
     '{{ id }}' AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS from_stop_id,
-    NULL::VARCHAR AS to_stop_id,
-    NULL::INTEGER AS transfer_type,
-    NULL::INTEGER AS min_transfer_time
+    NULL::VARCHAR AS feed_publisher_name,
+    NULL::VARCHAR AS feed_publisher_url,
+    NULL::VARCHAR AS feed_lang,
+    NULL::DATE    AS feed_start_date,
+    NULL::DATE    AS feed_end_date,
+    NULL::VARCHAR AS feed_version,
+    NULL::VARCHAR AS feed_contact_email,
+    NULL::VARCHAR AS feed_contact_url
 {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  feed_publisher_name,
+  feed_publisher_url,
+  feed_lang,
+  feed_start_date,
+  feed_end_date,
+  feed_version,
+  feed_contact_email,
+  feed_contact_url
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

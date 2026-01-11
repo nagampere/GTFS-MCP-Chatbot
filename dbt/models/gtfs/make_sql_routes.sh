@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# attributions （必要なら `--file routes` のように変更可能）
-fle="attributions"
-out="$dir/row_gtfs__${fle}_all.sql"
+# routes （必要なら `--file routes` のように変更可能）
+fle="routes"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,17 +147,19 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS attribution_id,
-    NULL::VARCHAR AS agency_id,
     NULL::VARCHAR AS route_id,
-    NULL::VARCHAR AS trip_id,
-    NULL::VARCHAR AS organization_name,
-    NULL::VARCHAR AS is_producer,
-    NULL::VARCHAR AS is_operator,
-    NULL::VARCHAR AS is_authority,
-    NULL::VARCHAR AS attribution_url,
-    NULL::VARCHAR AS attribution_email,
-    NULL::VARCHAR AS attribution_phone
+    NULL::VARCHAR AS agency_id,
+    NULL::VARCHAR AS route_short_name,
+    NULL::VARCHAR AS route_long_name,
+    NULL::VARCHAR AS route_desc,
+    NULL::INTEGER AS route_type,
+    NULL::VARCHAR AS route_url,
+    NULL::VARCHAR AS route_color,
+    NULL::VARCHAR AS route_text_color,
+    NULL::INTEGER AS route_sort_order,
+    NULL::INTEGER AS continuous_pickup,
+    NULL::INTEGER AS continuous_drop_off,
+    NULL::VARCHAR AS network_id
   WHERE FALSE
 {% else %}
 
@@ -171,17 +173,19 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.attribution_id,
-    t.agency_id,
     t.route_id,
-    t.trip_id,
-    t.organization_name,
-    t.is_producer,
-    t.is_operator,
-    t.is_authority,
-    t.attribution_url,
-    t.attribution_email,
-    t.attribution_phone
+    t.agency_id,
+    t.route_short_name,
+    t.route_long_name,
+    t.route_desc,
+    TRY_CAST(t.route_type AS INTEGER) AS route_type,
+    t.route_url,
+    t.route_color,
+    t.route_text_color,
+    TRY_CAST(t.route_sort_order AS INTEGER) AS route_sort_order,
+    TRY_CAST(t.continuous_pickup AS INTEGER) AS continuous_pickup,
+    TRY_CAST(t.continuous_drop_off AS INTEGER) AS continuous_drop_off,
+    t.network_id
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -193,17 +197,19 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'attribution_id':'VARCHAR',
-      'agency_id':'VARCHAR',
       'route_id':'VARCHAR',
-      'trip_id':'VARCHAR',
-      'organization_name':'VARCHAR',
-      'is_producer':'VARCHAR',
-      'is_operator':'VARCHAR',
-      'is_authority':'VARCHAR',
-      'attribution_url':'VARCHAR',
-      'attribution_email':'VARCHAR',
-      'attribution_phone':'VARCHAR'
+      'agency_id':'VARCHAR',
+      'route_short_name':'VARCHAR',
+      'route_long_name':'VARCHAR',
+      'route_desc':'VARCHAR',
+      'route_type':'VARCHAR',
+      'route_url':'VARCHAR',
+      'route_color':'VARCHAR',
+      'route_text_color':'VARCHAR',
+      'route_sort_order':'VARCHAR',
+      'continuous_pickup':'VARCHAR',
+      'continuous_drop_off':'VARCHAR',
+      'network_id':'VARCHAR'
     }
   ) AS t
 {% endfor %}
@@ -214,24 +220,42 @@ WITH source AS (
 --     '{{ id }}' AS gtfs_id,
 --     NULL::VARCHAR AS _path,
 --     TRUE AS _missing,
---     NULL::VARCHAR AS attribution_id,
---     NULL::VARCHAR AS agency_id,
 --     NULL::VARCHAR AS route_id,
---     NULL::VARCHAR AS trip_id,
---     NULL::VARCHAR AS organization_name,
---     NULL::VARCHAR AS is_producer,
---     NULL::VARCHAR AS is_operator,
---     NULL::VARCHAR AS is_authority,
---     NULL::VARCHAR AS attribution_url,
---     NULL::VARCHAR AS attribution_email,
---     NULL::VARCHAR AS attribution_phone
+--     NULL::VARCHAR AS agency_id,
+--     NULL::VARCHAR AS route_short_name,
+--     NULL::VARCHAR AS route_long_name,
+--     NULL::VARCHAR AS route_desc,
+--     NULL::INTEGER AS route_type,
+--     NULL::VARCHAR AS route_url,
+--     NULL::VARCHAR AS route_color,
+--     NULL::VARCHAR AS route_text_color,
+--     NULL::INTEGER AS route_sort_order,
+--     NULL::INTEGER AS continuous_pickup,
+--     NULL::INTEGER AS continuous_drop_off,
+--     NULL::VARCHAR AS network_id
 -- {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||route_id as route_id,
+  agency_id,
+  route_short_name,
+  route_long_name,
+  route_desc,
+  route_type,
+  route_url,
+  route_color,
+  route_text_color,
+  route_sort_order,
+  continuous_pickup,
+  continuous_drop_off,
+  network_id
+FROM source
 "
-
 
 printf '%s\n' "$sql" > "$out"
 echo "Wrote $out"

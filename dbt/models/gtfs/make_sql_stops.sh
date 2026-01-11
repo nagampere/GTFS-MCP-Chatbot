@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# frequencies （必要なら `--file routes` のように変更可能）
-fle="frequencies"
-out="$dir/row_gtfs__${fle}_all.sql"
+# stops （必要なら `--file routes` のように変更可能）
+fle="stops"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,11 +147,21 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS trip_id,
-    NULL::VARCHAR AS start_time,
-    NULL::VARCHAR AS end_time,
-    NULL::INTEGER AS headway_secs,
-    NULL::INTEGER AS exact_times
+
+    NULL::VARCHAR AS stop_id,
+    NULL::VARCHAR AS stop_code,
+    NULL::VARCHAR AS stop_name,
+    NULL::VARCHAR AS stop_desc,
+    NULL::DOUBLE  AS stop_lat,
+    NULL::DOUBLE  AS stop_lon,
+    NULL::VARCHAR AS zone_id,
+    NULL::VARCHAR AS stop_url,
+    NULL::INTEGER AS location_type,
+    NULL::VARCHAR AS parent_station,
+    NULL::VARCHAR AS stop_timezone,
+    NULL::INTEGER AS wheelchair_boarding,
+    NULL::VARCHAR AS level_id,
+    NULL::VARCHAR AS platform_code
   WHERE FALSE
 {% else %}
 
@@ -165,11 +175,21 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.trip_id,
-    t.start_time,
-    t.end_time,
-    TRY_CAST(t.headway_secs AS INTEGER) AS headway_secs,
-    TRY_CAST(t.exact_times AS INTEGER) AS exact_times
+
+    t.stop_id,
+    t.stop_code,
+    t.stop_name,
+    t.stop_desc,
+    TRY_CAST(t.stop_lat AS DOUBLE) AS stop_lat,
+    TRY_CAST(t.stop_lon AS DOUBLE) AS stop_lon,
+    t.zone_id,
+    t.stop_url,
+    TRY_CAST(t.location_type AS INTEGER) AS location_type,
+    t.parent_station,
+    t.stop_timezone,
+    TRY_CAST(t.wheelchair_boarding AS INTEGER) AS wheelchair_boarding,
+    t.level_id,
+    t.platform_code
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -181,31 +201,68 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'trip_id':'VARCHAR',
-      'start_time':'VARCHAR',
-      'end_time':'VARCHAR',
-      'headway_secs':'VARCHAR',
-      'exact_times':'VARCHAR'
+      'stop_id':'VARCHAR',
+      'stop_code':'VARCHAR',
+      'stop_name':'VARCHAR',
+      'stop_desc':'VARCHAR',
+      'stop_lat':'VARCHAR',
+      'stop_lon':'VARCHAR',
+      'zone_id':'VARCHAR',
+      'stop_url':'VARCHAR',
+      'location_type':'VARCHAR',
+      'parent_station':'VARCHAR',
+      'stop_timezone':'VARCHAR',
+      'wheelchair_boarding':'VARCHAR',
+      'level_id':'VARCHAR',
+      'platform_code':'VARCHAR'
     }
   ) AS t
 {% endfor %}
 
--- {% for id in missing_ids %}
---   {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
---   SELECT
---     '{{ id }}' AS gtfs_id,
---     NULL::VARCHAR AS _path,
---     TRUE AS _missing,
---     NULL::VARCHAR AS trip_id,
---     NULL::VARCHAR AS start_time,
---     NULL::VARCHAR AS end_time,
---     NULL::INTEGER AS headway_secs,
---     NULL::INTEGER AS exact_times
--- {% endfor %}
+{% for id in missing_ids %}
+  {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
+  SELECT
+    '{{ id }}' AS gtfs_id,
+    NULL::VARCHAR AS _path,
+    TRUE AS _missing,
+
+    NULL::VARCHAR AS stop_id,
+    NULL::VARCHAR AS stop_code,
+    NULL::VARCHAR AS stop_name,
+    NULL::VARCHAR AS stop_desc,
+    NULL::DOUBLE  AS stop_lat,
+    NULL::DOUBLE  AS stop_lon,
+    NULL::VARCHAR AS zone_id,
+    NULL::VARCHAR AS stop_url,
+    NULL::INTEGER AS location_type,
+    NULL::VARCHAR AS parent_station,
+    NULL::VARCHAR AS stop_timezone,
+    NULL::INTEGER AS wheelchair_boarding,
+    NULL::VARCHAR AS level_id,
+    NULL::VARCHAR AS platform_code
+{% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||stop_id as stop_id,
+  stop_code,
+  stop_name,
+  stop_desc,
+  stop_lat,
+  stop_lon,
+  zone_id,
+  stop_url,
+  location_type,
+  parent_station,
+  stop_timezone,
+  wheelchair_boarding,
+  gtfs_id||level_id as level_id,
+  platform_code
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

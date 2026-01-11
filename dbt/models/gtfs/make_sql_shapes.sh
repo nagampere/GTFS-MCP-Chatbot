@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# calendar （必要なら `--file routes` のように変更可能）
-fle="calendar"
-out="$dir/row_gtfs__${fle}_all.sql"
+# shapes （必要なら `--file routes` のように変更可能）
+fle="shapes"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,16 +147,11 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS service_id,
-    NULL::INTEGER AS monday,
-    NULL::INTEGER AS tuesday,
-    NULL::INTEGER AS wednesday,
-    NULL::INTEGER AS thursday,
-    NULL::INTEGER AS friday,
-    NULL::INTEGER AS saturday,
-    NULL::INTEGER AS sunday,
-    NULL::DATE    AS start_date,
-    NULL::DATE    AS end_date
+    NULL::VARCHAR AS shape_id,
+    NULL::DOUBLE  AS shape_pt_lat,
+    NULL::DOUBLE  AS shape_pt_lon,
+    NULL::INTEGER AS shape_pt_sequence,
+    NULL::DOUBLE  AS shape_dist_traveled
   WHERE FALSE
 {% else %}
 
@@ -170,18 +165,11 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-
-    t.service_id,
-    TRY_CAST(t.monday AS INTEGER) AS monday,
-    TRY_CAST(t.tuesday AS INTEGER) AS tuesday,
-    TRY_CAST(t.wednesday AS INTEGER) AS wednesday,
-    TRY_CAST(t.thursday AS INTEGER) AS thursday,
-    TRY_CAST(t.friday AS INTEGER) AS friday,
-    TRY_CAST(t.saturday AS INTEGER) AS saturday,
-    TRY_CAST(t.sunday AS INTEGER) AS sunday,
-
-    TRY_CAST(try_strptime(t.start_date, '%Y%m%d') AS DATE) AS start_date,
-    TRY_CAST(try_strptime(t.end_date, '%Y%m%d') AS DATE) AS end_date
+    t.shape_id,
+    TRY_CAST(t.shape_pt_lat AS DOUBLE) AS shape_pt_lat,
+    TRY_CAST(t.shape_pt_lon AS DOUBLE) AS shape_pt_lon,
+    TRY_CAST(t.shape_pt_sequence AS INTEGER) AS shape_pt_sequence,
+    TRY_CAST(t.shape_dist_traveled AS DOUBLE) AS shape_dist_traveled
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -193,41 +181,40 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'service_id':'VARCHAR',
-      'monday':'VARCHAR',
-      'tuesday':'VARCHAR',
-      'wednesday':'VARCHAR',
-      'thursday':'VARCHAR',
-      'friday':'VARCHAR',
-      'saturday':'VARCHAR',
-      'sunday':'VARCHAR',
-      'start_date':'VARCHAR',
-      'end_date':'VARCHAR'
+      'shape_id':'VARCHAR',
+      'shape_pt_lat':'VARCHAR',
+      'shape_pt_lon':'VARCHAR',
+      'shape_pt_sequence':'VARCHAR',
+      'shape_dist_traveled':'VARCHAR'
     }
   ) AS t
 {% endfor %}
 
-{% for id in missing_ids %}
-  {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
-  SELECT
-    '{{ id }}' AS gtfs_id,
-    NULL::VARCHAR AS _path,
-    TRUE AS _missing,
-    NULL::VARCHAR AS service_id,
-    NULL::INTEGER AS monday,
-    NULL::INTEGER AS tuesday,
-    NULL::INTEGER AS wednesday,
-    NULL::INTEGER AS thursday,
-    NULL::INTEGER AS friday,
-    NULL::INTEGER AS saturday,
-    NULL::INTEGER AS sunday,
-    NULL::DATE    AS start_date,
-    NULL::DATE    AS end_date
-{% endfor %}
+-- {% for id in missing_ids %}
+--   {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
+--   SELECT
+--     '{{ id }}' AS gtfs_id,
+--     NULL::VARCHAR AS _path,
+--     TRUE AS _missing,
+--     NULL::VARCHAR AS shape_id,
+--     NULL::DOUBLE  AS shape_pt_lat,
+--     NULL::DOUBLE  AS shape_pt_lon,
+--     NULL::INTEGER AS shape_pt_sequence,
+--     NULL::DOUBLE  AS shape_dist_traveled
+-- {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||shape_id as shape_id,
+  shape_pt_lat,
+  shape_pt_lon,
+  shape_pt_sequence,
+  shape_dist_traveled
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

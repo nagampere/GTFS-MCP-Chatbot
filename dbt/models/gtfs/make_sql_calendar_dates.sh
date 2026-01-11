@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# shapes （必要なら `--file routes` のように変更可能）
-fle="shapes"
-out="$dir/row_gtfs__${fle}_all.sql"
+# calendar_dates （必要なら `--file routes` のように変更可能）
+fle="calendar_dates"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,11 +147,9 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS shape_id,
-    NULL::DOUBLE  AS shape_pt_lat,
-    NULL::DOUBLE  AS shape_pt_lon,
-    NULL::INTEGER AS shape_pt_sequence,
-    NULL::DOUBLE  AS shape_dist_traveled
+    NULL::VARCHAR AS service_id,
+    NULL::DATE    AS date,
+    NULL::INTEGER AS exception_type
   WHERE FALSE
 {% else %}
 
@@ -165,11 +163,9 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.shape_id,
-    TRY_CAST(t.shape_pt_lat AS DOUBLE) AS shape_pt_lat,
-    TRY_CAST(t.shape_pt_lon AS DOUBLE) AS shape_pt_lon,
-    TRY_CAST(t.shape_pt_sequence AS INTEGER) AS shape_pt_sequence,
-    TRY_CAST(t.shape_dist_traveled AS DOUBLE) AS shape_dist_traveled
+    t.service_id,
+    TRY_CAST(try_strptime(t.date, '%Y%m%d') AS DATE) AS date,
+    TRY_CAST(t.exception_type AS INTEGER) AS exception_type
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -181,31 +177,34 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'shape_id':'VARCHAR',
-      'shape_pt_lat':'VARCHAR',
-      'shape_pt_lon':'VARCHAR',
-      'shape_pt_sequence':'VARCHAR',
-      'shape_dist_traveled':'VARCHAR'
+      'service_id':'VARCHAR',
+      'date':'VARCHAR',
+      'exception_type':'VARCHAR'
     }
   ) AS t
 {% endfor %}
 
--- {% for id in missing_ids %}
---   {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
---   SELECT
---     '{{ id }}' AS gtfs_id,
---     NULL::VARCHAR AS _path,
---     TRUE AS _missing,
---     NULL::VARCHAR AS shape_id,
---     NULL::DOUBLE  AS shape_pt_lat,
---     NULL::DOUBLE  AS shape_pt_lon,
---     NULL::INTEGER AS shape_pt_sequence,
---     NULL::DOUBLE  AS shape_dist_traveled
--- {% endfor %}
+{% for id in missing_ids %}
+  {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
+  SELECT
+    '{{ id }}' AS gtfs_id,
+    NULL::VARCHAR AS _path,
+    TRUE AS _missing,
+    NULL::VARCHAR AS service_id,
+    NULL::DATE    AS date,
+    NULL::INTEGER AS exception_type
+{% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||service_id as service_id,
+  date,
+  exception_type
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

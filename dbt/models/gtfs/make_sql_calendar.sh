@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# stop_times （必要なら `--file routes` のように変更可能）
-fle="stop_times"
-out="$dir/row_gtfs__${fle}_all.sql"
+# calendar （必要なら `--file routes` のように変更可能）
+fle="calendar"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,18 +147,16 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS trip_id,
-    NULL::VARCHAR AS arrival_time,
-    NULL::VARCHAR AS departure_time,
-    NULL::VARCHAR AS stop_id,
-    NULL::INTEGER AS stop_sequence,
-    NULL::VARCHAR AS stop_headsign,
-    NULL::INTEGER AS pickup_type,
-    NULL::INTEGER AS drop_off_type,
-    NULL::INTEGER AS continuous_pickup,
-    NULL::INTEGER AS continuous_drop_off,
-    NULL::DOUBLE  AS shape_dist_traveled,
-    NULL::INTEGER AS timepoint
+    NULL::VARCHAR AS service_id,
+    NULL::INTEGER AS monday,
+    NULL::INTEGER AS tuesday,
+    NULL::INTEGER AS wednesday,
+    NULL::INTEGER AS thursday,
+    NULL::INTEGER AS friday,
+    NULL::INTEGER AS saturday,
+    NULL::INTEGER AS sunday,
+    NULL::DATE    AS start_date,
+    NULL::DATE    AS end_date
   WHERE FALSE
 {% else %}
 
@@ -172,18 +170,18 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.trip_id,
-    t.arrival_time,
-    t.departure_time,
-    t.stop_id,
-    TRY_CAST(t.stop_sequence AS INTEGER) AS stop_sequence,
-    t.stop_headsign,
-    TRY_CAST(t.pickup_type AS INTEGER) AS pickup_type,
-    TRY_CAST(t.drop_off_type AS INTEGER) AS drop_off_type,
-    TRY_CAST(t.continuous_pickup AS INTEGER) AS continuous_pickup,
-    TRY_CAST(t.continuous_drop_off AS INTEGER) AS continuous_drop_off,
-    TRY_CAST(t.shape_dist_traveled AS DOUBLE) AS shape_dist_traveled,
-    TRY_CAST(t.timepoint AS INTEGER) AS timepoint
+
+    t.service_id,
+    TRY_CAST(t.monday AS INTEGER) AS monday,
+    TRY_CAST(t.tuesday AS INTEGER) AS tuesday,
+    TRY_CAST(t.wednesday AS INTEGER) AS wednesday,
+    TRY_CAST(t.thursday AS INTEGER) AS thursday,
+    TRY_CAST(t.friday AS INTEGER) AS friday,
+    TRY_CAST(t.saturday AS INTEGER) AS saturday,
+    TRY_CAST(t.sunday AS INTEGER) AS sunday,
+
+    TRY_CAST(try_strptime(t.start_date, '%Y%m%d') AS DATE) AS start_date,
+    TRY_CAST(try_strptime(t.end_date, '%Y%m%d') AS DATE) AS end_date
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -195,18 +193,16 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'trip_id':'VARCHAR',
-      'arrival_time':'VARCHAR',
-      'departure_time':'VARCHAR',
-      'stop_id':'VARCHAR',
-      'stop_sequence':'VARCHAR',
-      'stop_headsign':'VARCHAR',
-      'pickup_type':'VARCHAR',
-      'drop_off_type':'VARCHAR',
-      'continuous_pickup':'VARCHAR',
-      'continuous_drop_off':'VARCHAR',
-      'shape_dist_traveled':'VARCHAR',
-      'timepoint':'VARCHAR'
+      'service_id':'VARCHAR',
+      'monday':'VARCHAR',
+      'tuesday':'VARCHAR',
+      'wednesday':'VARCHAR',
+      'thursday':'VARCHAR',
+      'friday':'VARCHAR',
+      'saturday':'VARCHAR',
+      'sunday':'VARCHAR',
+      'start_date':'VARCHAR',
+      'end_date':'VARCHAR'
     }
   ) AS t
 {% endfor %}
@@ -217,23 +213,35 @@ WITH source AS (
     '{{ id }}' AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS trip_id,
-    NULL::VARCHAR AS arrival_time,
-    NULL::VARCHAR AS departure_time,
-    NULL::VARCHAR AS stop_id,
-    NULL::INTEGER AS stop_sequence,
-    NULL::VARCHAR AS stop_headsign,
-    NULL::INTEGER AS pickup_type,
-    NULL::INTEGER AS drop_off_type,
-    NULL::INTEGER AS continuous_pickup,
-    NULL::INTEGER AS continuous_drop_off,
-    NULL::DOUBLE  AS shape_dist_traveled,
-    NULL::INTEGER AS timepoint
+    NULL::VARCHAR AS service_id,
+    NULL::INTEGER AS monday,
+    NULL::INTEGER AS tuesday,
+    NULL::INTEGER AS wednesday,
+    NULL::INTEGER AS thursday,
+    NULL::INTEGER AS friday,
+    NULL::INTEGER AS saturday,
+    NULL::INTEGER AS sunday,
+    NULL::DATE    AS start_date,
+    NULL::DATE    AS end_date
 {% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  gtfs_id||service_id as service_id,
+  monday,
+  tuesday,
+  wednesday,
+  thursday,
+  friday,
+  saturday,
+  sunday,
+  start_date,
+  end_date
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"

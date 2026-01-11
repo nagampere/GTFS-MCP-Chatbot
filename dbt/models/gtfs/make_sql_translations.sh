@@ -5,15 +5,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
-# agency （必要なら `--file routes` のように変更可能）
-fle="agency"
-out="$dir/row_gtfs__${fle}_all.sql"
+# translations （必要なら `--file routes` のように変更可能）
+fle="translations"
+out="$dir/${fle}.sql"
 
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
-    --file) fle="$2"; out="$dir/row_gtfs__${fle}_all.sql"; shift 2 ;;
+    --file) fle="$2"; out="$dir/${fle}.sql"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -147,14 +147,13 @@ WITH source AS (
     NULL::VARCHAR AS gtfs_id,
     NULL::VARCHAR AS _path,
     TRUE AS _missing,
-    NULL::VARCHAR AS agency_id,
-    NULL::VARCHAR AS agency_name,
-    NULL::VARCHAR AS agency_url,
-    NULL::VARCHAR AS agency_timezone,
-    NULL::VARCHAR AS agency_lang,
-    NULL::VARCHAR AS agency_phone,
-    NULL::VARCHAR AS agency_fare_url,
-    NULL::VARCHAR AS agency_email
+    NULL::VARCHAR AS table_name,
+    NULL::VARCHAR AS field_name,
+    NULL::VARCHAR AS language,
+    NULL::VARCHAR AS translation,
+    NULL::VARCHAR AS record_id,
+    NULL::VARCHAR AS record_sub_id,
+    NULL::VARCHAR AS field_value
   WHERE FALSE
 {% else %}
 
@@ -168,14 +167,13 @@ WITH source AS (
     '{{ src_id }}' AS gtfs_id,
     '{{ p }}' AS _path,
     FALSE AS _missing,
-    t.agency_id AS agency_id,
-    t.agency_name,
-    t.agency_url,
-    t.agency_timezone,
-    t.agency_lang,
-    t.agency_phone,
-    t.agency_fare_url,
-    t.agency_email
+    t.table_name,
+    t.field_name,
+    t.language,
+    t.translation,
+    t.record_id,
+    t.record_sub_id,
+    t.field_value
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
@@ -187,37 +185,46 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'agency_id':'VARCHAR',
-      'agency_name':'VARCHAR',
-      'agency_url':'VARCHAR',
-      'agency_timezone':'VARCHAR',
-      'agency_lang':'VARCHAR',
-      'agency_phone':'VARCHAR',
-      'agency_fare_url':'VARCHAR',
-      'agency_email':'VARCHAR'
+      'table_name':'VARCHAR',
+      'field_name':'VARCHAR',
+      'language':'VARCHAR',
+      'translation':'VARCHAR',
+      'record_id':'VARCHAR',
+      'record_sub_id':'VARCHAR',
+      'field_value':'VARCHAR'
     }
   ) AS t
 {% endfor %}
 
--- {% for id in missing_ids %}
---   {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
---   SELECT
---     '{{ id }}' AS gtfs_id,
---     NULL::VARCHAR AS _path,
---     TRUE AS _missing,
---     '{{ id }}' AS agency_id,
---     NULL::VARCHAR AS agency_name,
---     NULL::VARCHAR AS agency_url,
---     NULL::VARCHAR AS agency_timezone,
---     NULL::VARCHAR AS agency_lang,
---     NULL::VARCHAR AS agency_phone,
---     NULL::VARCHAR AS agency_fare_url,
---     NULL::VARCHAR AS agency_email
--- {% endfor %}
+{% for id in missing_ids %}
+  {%- if (paths | length) > 0 or not loop.first %} UNION ALL {%- endif %}
+  SELECT
+    '{{ id }}' AS gtfs_id,
+    NULL::VARCHAR AS _path,
+    TRUE AS _missing,
+    NULL::VARCHAR AS table_name,
+    NULL::VARCHAR AS field_name,
+    NULL::VARCHAR AS language,
+    NULL::VARCHAR AS translation,
+    NULL::VARCHAR AS record_id,
+    NULL::VARCHAR AS record_sub_id,
+    NULL::VARCHAR AS field_value
+{% endfor %}
 
 {% endif %}
 )
-SELECT * FROM source
+SELECT
+  gtfs_id,
+  _path,
+  _missing,
+  table_name,
+  field_name,
+  language,
+  translation,
+  gtfs_id||record_id as record_id,
+  gtfs_id||record_sub_id as record_sub_id,
+  field_value
+FROM source
 "
 
 printf '%s\n' "$sql" > "$out"
