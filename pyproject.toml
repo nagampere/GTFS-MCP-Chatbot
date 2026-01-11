@@ -1,10 +1,11 @@
 [project]
-name = "gtfs-mcp-chatbot"
+name = "gtfs_mcp-chatbot"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.75.0",
+    "dbt-duckdb>=1.10.0",
     "streamlit>=1.52.2",
 ]
