@@ -39,7 +39,6 @@
   'gtfs/higashiyamatoshi_bus/latest/AllLines_ODPT_extracted/translations.txt',
   'gtfs/seibu_bus/latest/SeibuBus-GTFS_extracted/translations.txt',
   'gtfs/joetsushi_bus/latest/data-1_extracted/translations.txt',
-  's3://georoost/sandbox/tokyo_missing_bus/translations.txt',
   's3://georoost/sandbox/tokyo_rail/translations.txt'
 ] %}
 

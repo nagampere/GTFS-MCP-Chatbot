@@ -1,7 +1,5 @@
 {% set paths = [
-  'gtfs/kyotoshi_bus/latest/Kyoto_City_Bus_GTFS_extracted/frequencies.txt',
-  's3://georoost/sandbox/tokyo_missing_bus/frequencies.txt',
-  's3://georoost/sandbox/tokyo_rail/frequencies.txt'
+  'gtfs/kyotoshi_bus/latest/Kyoto_City_Bus_GTFS_extracted/frequencies.txt'
 ] %}
 
 {% set missing_ids = [

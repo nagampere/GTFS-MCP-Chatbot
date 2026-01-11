@@ -98,14 +98,14 @@ WITH source AS (
     null_padding = true,
     strict_mode = false,
     columns = {
-      'agency_id' : 'VARCHAR',
-      'agency_name' : 'VARCHAR',
-      'agency_url' : 'VARCHAR',
-      'agency_timezone' : 'VARCHAR',
-      'agency_lang' : 'VARCHAR',
-      'agency_phone' : 'VARCHAR',
-      'agency_fare_url' : 'VARCHAR',
-      'agency_email' : 'VARCHAR'
+      'agency_id':'VARCHAR',
+      'agency_name':'VARCHAR',
+      'agency_url':'VARCHAR',
+      'agency_timezone':'VARCHAR',
+      'agency_lang':'VARCHAR',
+      'agency_phone':'VARCHAR',
+      'agency_fare_url':'VARCHAR',
+      'agency_email':'VARCHAR'
     }
   ) AS t
 {% endfor %}

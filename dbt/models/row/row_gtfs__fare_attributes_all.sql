@@ -41,9 +41,7 @@
   'gtfs/daishinto_bus/latest/Radiantcity_Yokohama_extracted/fare_attributes.txt',
   'gtfs/higashiyamatoshi_bus/latest/AllLines_ODPT_extracted/fare_attributes.txt',
   'gtfs/seibu_bus/latest/SeibuBus-GTFS_extracted/fare_attributes.txt',
-  'gtfs/joetsushi_bus/latest/data-1_extracted/fare_attributes.txt',
-  's3://georoost/sandbox/tokyo_missing_bus/fare_attributes.txt',
-  's3://georoost/sandbox/tokyo_rail/fare_attributes.txt'
+  'gtfs/joetsushi_bus/latest/data-1_extracted/fare_attributes.txt'
 ] %}
 
 {% set missing_ids = [

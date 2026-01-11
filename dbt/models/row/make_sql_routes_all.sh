@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-manifest_file="$script_dir/../../../../file_loader/manifest.csv"
+manifest_file="$script_dir/../../seeds/gtfs.csv"
 dir="$script_dir"
 
 # routes （必要なら `--file routes` のように変更可能）
@@ -85,11 +85,16 @@ done < "$manifest_rows"
 
 rm -f "$manifest_rows"
 
-# 追加: sandbox の tokyo_missing_bus と tokyo_rail も常に UNION 対象にする（存在しなくてもOK）
-extra1="s3://georoost/sandbox/tokyo_missing_bus/${fle}.txt"
-extra2="s3://georoost/sandbox/tokyo_rail/${fle}.txt"
-grep -qxF "$extra1" "$paths_file" 2>/dev/null || echo "$extra1" >> "$paths_file"
-grep -qxF "$extra2" "$paths_file" 2>/dev/null || echo "$extra2" >> "$paths_file"
+# 追加: sandbox の tokyo_missing_bus / tokyo_rail は「存在する場合のみ」UNION 対象にする
+for sandbox_id in tokyo_missing_bus tokyo_rail; do
+  for ext in txt csv; do
+    extra="s3://georoost/sandbox/${sandbox_id}/${fle}.${ext}"
+    if aws s3 ls "$extra" >/dev/null 2>&1; then
+      grep -qxF "$extra" "$paths_file" 2>/dev/null || echo "$extra" >> "$paths_file"
+      break
+    fi
+  done
+done
 
 # 3) SQL 生成（paths と missing_ids を Jinja 配列にして UNION ALL）
 sql=""
@@ -184,8 +189,8 @@ WITH source AS (
   FROM read_csv(
     '{{ full_path }}',
     delim = ',',
-    quote = '"',
-    escape = '"',
+    quote = '\"',
+    escape = '\"',
     header = true,
     auto_detect = false,
     null_padding = true,

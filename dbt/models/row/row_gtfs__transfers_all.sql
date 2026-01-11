@@ -14,7 +14,6 @@
   'gtfs/oshima_bus/latest/AllLines_extracted/transfers.txt',
   'gtfs/daishinto_bus/latest/Radiantcity_Yokohama_extracted/transfers.txt',
   'gtfs/higashiyamatoshi_bus/latest/AllLines_ODPT_extracted/transfers.txt',
-  's3://georoost/sandbox/tokyo_missing_bus/transfers.txt',
   's3://georoost/sandbox/tokyo_rail/transfers.txt'
 ] %}
 

@@ -30,7 +30,6 @@
   'gtfs/daishinto_bus/latest/Radiantcity_Yokohama_extracted/shapes.txt',
   'gtfs/higashiyamatoshi_bus/latest/AllLines_ODPT_extracted/shapes.txt',
   'gtfs/joetsushi_bus/latest/data-1_extracted/shapes.txt',
-  's3://georoost/sandbox/tokyo_missing_bus/shapes.txt',
   's3://georoost/sandbox/tokyo_rail/shapes.txt'
 ] %}
 
