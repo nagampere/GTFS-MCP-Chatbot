@@ -1,0 +1,2127 @@
+example_1:
+    feed: SFMTA
+    question: Find the number of trips for route_id '25490' on a typical Friday
+    answer: |
+        ```python
+        # Get friday service_ids
+        friday_services = feed.calendar[(feed.calendar['friday'] == 1)]['service_id']
+
+        # Filter trips for route_id '25490' and friday services
+        friday_trips = feed.trips[(feed.trips['route_id'] == '25490') & 
+                                  (feed.trips['service_id'].isin(friday_services))]
+
+        # Count the trips
+        trip_count = friday_trips.shape[0]
+
+        result = {
+            'answer': trip_count,
+            'additional_info': "This count includes all trips scheduled for fridays according to the calendar, excluding any exceptions in calendar_dates."
+        }
+        # Note: No plot or map for this example
+        ```
+
+example_2:
+    feed: SFMTA
+    question: Calculate the average trip duration for route_id '25490'
+    answer: |
+        ```python
+        # Filter stop_times for route_id '25490'
+        route_25490_trips = feed.trips[feed.trips['route_id'] == '25490']['trip_id']
+        route_25490_stop_times = feed.stop_times[feed.stop_times['trip_id'].isin(route_25490_trips)]
+        # Merge with feed.trips to get direction_id
+        route_25490_stop_times = route_25490_stop_times.merge(feed.trips, on='trip_id')
+
+        # Calculate trip durations
+        trip_durations = route_25490_stop_times.groupby(['trip_id','direction_id']).agg({
+            'arrival_time': lambda x: (x.max() - x.min()) / 60 # convert to minutes
+        })
+
+        # Calculate average duration
+        trip_durations = trip_durations.rename(columns={'arrival_time': 'trip_duration'}).reset_index()
+        avg_duration = trip_durations['trip_duration'].mean()
+
+        # Create the plot
+        color_map = {direction: px.colors.qualitative.Set1[i] for i, direction in enumerate(trip_durations['direction_id'].unique())}
+        fig = px.histogram(trip_durations, x='trip_duration', 
+                            color='direction_id',
+                            title='Distribution of Trip Durations for Route 25490', 
+                            labels={"trip_duration": "Trip Duration (min)", "direction_id": "Direction ID"},
+                            color_discrete_map = color_map)
+        fig.update_layout(legend_title_text='Direction')
+
+        result = {
+            'answer': avg_duration,  # This is a timedelta object
+            'additional_info': f"This calculation is based on {len(trip_durations)} trips.",
+            'plot': fig  # This is a plotly Figure object
+        }
+        ```
+
+example_3:
+    feed: CUMTD
+    question: Calculate the headway for GREEN route
+    answer: |
+        ```python
+        route_id = find_route(feed, "GREEN").route_id
+
+        # Assume a direction for the route
+        direction_id = feed.trips[feed.trips.route_id == route_id].direction_id.sample(n=1).values[0]
+
+        # Get all trips for the specified route
+        route_trips = feed.trips[(feed.trips['route_id'] == route_id) & (feed.trips['direction_id'] == direction_id)]
+
+        if route_trips.empty:
+            result = {"answer": None, "additional_info": f"No trips found for route {route_id}"}
+
+        # Get the first stop for each trip
+        first_stops = feed.stop_times[feed.stop_times['trip_id'].isin(route_trips['trip_id']) & 
+                                      (feed.stop_times['stop_sequence'] == 1)]
+        first_stop_id = first_stops['stop_id'].iloc[0]
+
+        first_stops = first_stops.sort_values('arrival_time')
+        first_stops['headway_minutes'] = first_stops['arrival_time'].diff() / 60
+        first_stops['arrival_hour'] = first_stops['arrival_time'] / 3600
+
+        # Calculate overall average headway
+        overall_avg_headway = first_stops['headway_minutes'].mean()
+
+        # Create a plot
+        fig = px.box(first_stops, x='arrival_hour', y='headway_minutes', 
+                     title=f'Headways Distribution for Route {route_id} Direction {direction_id} (at First Stop {first_stop_id})')
+        fig.update_layout(
+            xaxis_title="Hour of the day",
+            yaxis_title="Headway (minutes)",
+        )
+
+        result = {
+            'answer': overall_avg_headway,
+            'additional_info': (f"Average headway calculated for route {route_id} direction {direction_id} at first stop {first_stop_id}. "
+                                f"Headways vary by service_id: {service_headways}"),
+            'plot': fig
+        }
+        # Note headways might vary for stops along the route, we calculate for the first stop only
+        ```
+
+example_4:
+    feed: Any
+    question: Find the longest route in the GTFS feed
+    answer: |
+        ```python
+        # Group shapes by shape_id and calculate total distance for each shape
+        shape_distances = feed.shapes.groupby('shape_id').agg({'shape_dist_traveled': 'max'}).reset_index()
+        
+        # Merge shape distances with trips to get route_id for each shape
+        route_distances = pd.merge(feed.trips[['route_id', 'shape_id']], shape_distances, on='shape_id', how='left')
+        
+        # Group by route_id and find the maximum distance for each route 
+        route_max_distances = route_distances.groupby('route_id').agg({'shape_dist_traveled': 'max'}).reset_index()
+        
+        # Get the longest route
+        longest_route = route_max_distances.loc[route_max_distances['shape_dist_traveled'].idxmax()]
+        longest_route_info = feed.routes[feed.routes['route_id'] == longest_route['route_id']].iloc[0]
+        
+        # Create map showing the longest route
+        # Get shape points for the longest route
+        longest_route_trips = feed.trips[feed.trips['route_id'] == longest_route['route_id']]
+        longest_route_shapes = longest_route_trips['shape_id'].unique()
+        
+        # Create base map centered on first shape point
+        center_lat = feed.shapes[feed.shapes['shape_id'] == longest_route_shapes[0]]['shape_pt_lat'].iloc[0]
+        center_lon = feed.shapes[feed.shapes['shape_id'] == longest_route_shapes[0]]['shape_pt_lon'].iloc[0]
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=12, tiles='CartoDB positron')
+        
+        # Plot each shape for the route
+        for shape_id in longest_route_shapes:
+            shape_points = feed.shapes[feed.shapes['shape_id'] == shape_id]
+            points = [[row['shape_pt_lat'], row['shape_pt_lon']] 
+                      for _, row in shape_points.iterrows()]
+        
+            # Use route color if available, otherwise default to blue
+            route_color = longest_route_info['route_color'] if 'route_color' in longest_route_info else '0000ff'
+        
+            folium.PolyLine(
+                points,
+                weight=2,
+                color=f'#{route_color}',
+                opacity=0.8,
+                popup=f"Route: {longest_route_info['route_long_name']}"
+            ).add_to(m)
+        
+        result = {
+            'answer': {
+                'route_id': longest_route['route_id'],
+                'route_name': longest_route_info['route_long_name'],
+                'length_km': round(longest_route['shape_dist_traveled']/1000, 2)
+            },
+            'additional_info': {
+                'route_short_name': longest_route_info['route_short_name'],
+                'route_type': longest_route_info['route_type'],
+                'route_url': longest_route_info['route_url']
+            },
+            'map': m
+        }
+        ```
+
+example_5:
+    feed: Any
+    question: Identify the date when a specific route had the fewest trips in the GTFS feed.
+    answer: |
+        ```python
+        # Specify the route_id we're interested in
+        route_id = "25491"
+
+        # Get trips for the specified route
+        route_trips = feed.trips[feed.trips["route_id"] == route_id]
+        valid_services = set(route_trips.service_id)
+
+        # Count trips per service
+        service_trip_count = route_trips.groupby("service_id").size()
+
+        # Get date range
+        start_date = feed.feed_info["feed_start_date"].iloc[0]
+        end_date = feed.feed_info["feed_end_date"].iloc[0]
+        date_range = pd.date_range(start=start_date, end=end_date)
+        date_range = [date.date() for date in date_range]
+
+        date_trip_count = {}
+        for date in date_range:
+            day_of_week = date.strftime("%A").lower()
+            
+            # Get active services for the date
+            active_services = set(feed.calendar[
+                (feed.calendar["start_date"] <= date) &
+                (feed.calendar["end_date"] >= date) &
+                (feed.calendar[day_of_week] == 1)
+            ].service_id)
+            
+            # Apply exceptions
+            exceptions = feed.calendar_dates[feed.calendar_dates["date"] == date]
+            for _, exception in exceptions.iterrows():
+                if exception["exception_type"] == 1:
+                    active_services.add(exception["service_id"])
+                elif exception["exception_type"] == 2:
+                    active_services.discard(exception["service_id"])
+            
+            # Count trips for active services that are valid for this route
+            trips = sum(service_trip_count.get(service, 0) 
+                        for service in (active_services & valid_services))
+            
+            date_trip_count[date] = trips
+
+        # Convert the dictionary to a DataFrame for easier analysis
+        trip_count_df = pd.DataFrame.from_dict(date_trip_count, orient='index', columns=['trip_count'])
+        trip_count_df = trip_count_df[trip_count_df['trip_count'] > 0]  # Exclude dates with no service
+
+        # Find the date with the minimum number of trips
+        min_trips_date = trip_count_df['trip_count'].idxmin()
+        min_trips_count = trip_count_df.loc[min_trips_date, 'trip_count']
+
+        # Create the plot
+        fig = px.line(trip_count_df.reset_index(), x='index', y='trip_count', 
+                      title=f'Trip Counts for Route {route_id}')
+
+        result = {
+            'answer': {
+                'date': min_trips_date,
+                'trip_count': min_trips_count
+            },
+            'additional_info': f"This analysis covered the period from {start_date} to {end_date}. The route analyzed was {route_id}.",
+            'plot': fig  # This is a plotly Figure object
+        }
+        ```
+
+example_6:
+    feed: CUMTD
+    question: Find directions from Orchard Downs to Newmark Civil Engineering Laboratory now
+    answer: |
+        ```python
+        import pytz
+        from datetime import datetime
+        from geopy.distance import geodesic
+        
+        def format_time_hhmmss(time):
+            time = int(time)
+            return f"{time // 3600:02d}:{(time % 3600) // 60:02d}:{time % 60:02d}"
+        
+        # Find stops near origin and destination
+        start_stops = find_stops_by_full_name(feed, "Orchard Downs")
+        end_stops = find_stops_by_full_name(feed, "Newmark Civil Engineering")
+        
+        if start_stops.empty or end_stops.empty:
+            # Try geocoding if stop names not found
+            start_stops = find_stops_by_address(feed, "Orchard Downs, Champaign, IL", 300)[0]
+            end_stops = find_stops_by_address(feed, "Newmark Civil Engineering Laboratory, Urbana, IL", 300)[0]
+        
+        # Get current time in agency timezone
+        agency_tz = pytz.timezone(feed.agency.agency_timezone.iloc[0])
+        now = datetime.now(agency_tz)
+        current_time = now.hour * 3600 + now.minute * 60 + now.second
+        current_day = now.strftime("%A").lower()
+        
+        # Find active services for current day
+        active_services = feed.calendar[
+            (feed.calendar['start_date'] <= now.date()) &
+            (feed.calendar['end_date'] >= now.date()) &
+            (feed.calendar[current_day] == 1)
+        ]['service_id']
+        
+        # Get trips in the next hour
+        next_hour = current_time + 3600
+        stop_times = feed.stop_times[
+            (feed.stop_times['departure_time'] >= current_time) &
+            (feed.stop_times['departure_time'] <= next_hour)
+        ]
+        
+        # Find trips that serve both stops
+        possible_trips = []
+        for _, start_stop in start_stops.iterrows():
+            for _, end_stop in end_stops.iterrows():
+                start_times = stop_times[stop_times['stop_id'] == start_stop['stop_id']]
+                for _, start_time in start_times.iterrows():
+                    trip_stops = stop_times[stop_times['trip_id'] == start_time['trip_id']]
+                    end_times = trip_stops[trip_stops['stop_id'] == end_stop['stop_id']]
+        
+                    if not end_times.empty:
+                        end_time = end_times.iloc[0]
+                        if end_time['stop_sequence'] > start_time['stop_sequence']:
+                            trip = feed.trips[feed.trips['trip_id'] == start_time['trip_id']].iloc[0]
+                            route = feed.routes[feed.routes['route_id'] == trip['route_id']].iloc[0]
+        
+                            possible_trips.append({
+                                'start_stop': start_stop,
+                                'end_stop': end_stop,
+                                'start_time': start_time['departure_time'],
+                                'end_time': end_time['arrival_time'],
+                                'route': route,
+                                'trip': trip
+                            })
+        
+        # Create map
+        m = folium.Map(
+            location=[start_stops.iloc[0]['stop_lat'], start_stops.iloc[0]['stop_lon']],
+            zoom_start=14,
+            tiles='CartoDB positron'
+        )
+        
+        # Add markers for start and end stops
+        folium.Marker(
+            [start_stops.iloc[0]['stop_lat'], start_stops.iloc[0]['stop_lon']], 
+            popup=f"Start: {start_stops.iloc[0]['stop_name']}",
+            icon=folium.Icon(color='green')
+        ).add_to(m)
+        
+        folium.Marker(
+            [end_stops.iloc[0]['stop_lat'], end_stops.iloc[0]['stop_lon']],
+            popup=f"End: {end_stops.iloc[0]['stop_name']}", 
+            icon=folium.Icon(color='red')
+        ).add_to(m)
+        
+        if possible_trips:
+            # Get best trip (earliest departure)
+            best_trip = min(possible_trips, key=lambda x: x['start_time'])
+        
+            # Get route shape points
+            shape_points = feed.shapes[
+                feed.shapes['shape_id'] == best_trip['trip']['shape_id']
+            ].sort_values('shape_pt_sequence')
+        
+            # Draw route line
+            route_color = f"#{best_trip['route']['route_color']}" if pd.notna(best_trip['route']['route_color']) else '#3388ff'
+            points = [[row['shape_pt_lat'], row['shape_pt_lon']] for _, row in shape_points.iterrows()]
+            folium.PolyLine(
+                points,
+                weight=3,
+                color=route_color,
+                opacity=0.8
+            ).add_to(m)
+        
+            # Calculate distance
+            distance = geodesic(
+                (best_trip['start_stop']['stop_lat'], best_trip['start_stop']['stop_lon']),
+                (best_trip['end_stop']['stop_lat'], best_trip['end_stop']['stop_lon'])
+            ).kilometers
+        
+            result = {
+                'answer': f"Take {best_trip['route']['route_long_name']} from {best_trip['start_stop']['stop_name']} at {format_time_hhmmss(best_trip['start_time'])} to {best_trip['end_stop']['stop_name']}, arriving at {format_time_hhmmss(best_trip['end_time'])}",
+                'additional_info': f"Travel time: {(best_trip['end_time'] - best_trip['start_time'])//60} minutes\nDistance: {distance:.1f} km",
+                'map': m
+            }
+        else:
+            result = {
+                'answer': "No direct routes found in the next hour between these locations.",
+                'additional_info': "Try checking other times or consider alternative routes with transfers.",
+                'map': m
+            }
+        ```
+
+example_7:
+    feed: CUMTD
+    question: Find the stop at University St and Victor Ave
+    answer: |
+        ```python
+        # Find stops at the intersection of University and Victor
+        matched_stops = find_stops_by_intersection(feed, "University", "Victor")
+        
+        # If no direct matches found, try geocoding the address
+        if matched_stops.empty:
+            matched_stops = find_stops_by_address(feed, "University St and Victor Ave, Urbana, IL", radius_meters=200)[0]
+        
+        # Create map centered on the intersection
+        if not matched_stops.empty:
+            m = folium.Map(
+                location=[matched_stops.iloc[0]['stop_lat'], matched_stops.iloc[0]['stop_lon']], 
+                zoom_start=17,
+                tiles='CartoDB positron'
+            )
+        
+            # Add markers for each matched stop
+            for _, stop in matched_stops.iterrows():
+                folium.Marker(
+                    [stop['stop_lat'], stop['stop_lon']],
+                    popup=f"Stop: {stop['stop_name']}<br>ID: {stop['stop_id']}",
+                    icon=folium.Icon(color='red')
+                ).add_to(m)
+        
+            result = {
+                'answer': f"Found {len(matched_stops)} stop(s) near University St and Victor Ave:",
+                'additional_info': "",
+                'map': m
+            }
+        
+            for _, stop in matched_stops.iterrows():
+                result['additional_info'] += f"\nStop Name: {stop['stop_name']}\n"
+                result['additional_info'] += f"Stop ID: {stop['stop_id']}\n"
+                if 'distance' in stop:
+                    result['additional_info'] += f"Distance from intersection: {stop['distance']:.0f} meters\n"
+        else:
+            result = {
+                'answer': "No stops found at University St and Victor Ave",
+                'additional_info': "Unable to locate any bus stops near this intersection. Please verify the street names or try searching nearby intersections."
+            }
+        ```
+
+example_8:
+    feed: DART
+    question: Find all mid block stops on Illinois
+    answer: |
+        ```python
+        # Find stops on Illinois street
+        illinois_stops = find_stops_by_street(feed, "Illinois", threshold=80)
+
+        # Filter for mid-block stops
+        mid_block_stops = illinois_stops[illinois_stops['stop_name'].str.contains('MB', case=False, na=False)]
+
+        # Create a GeoDataFrame for mapping
+        gdf = gpd.GeoDataFrame(
+            mid_block_stops, 
+            geometry=gpd.points_from_xy(mid_block_stops.stop_lon, mid_block_stops.stop_lat),
+            crs="EPSG:4326"
+        )
+
+        # Create an interactive map
+        m = gdf.explore(
+            column="stop_name",
+            tooltip=["stop_name", "stop_id"], # Tooltip must be a column name
+            popup=True,
+            name="Mid-block Stops",
+            style_kwds={"color": "red"},
+            tiles="CartoDB Positron"
+        )
+
+        # Add a title to the map
+        title_html = '''
+                    <h3 align="center" style="font-size:16px"><b>Mid-block Stops on Illinois Street</b></h3>
+                    '''
+        m.get_root().html.add_child(folium.Element(title_html))
+
+        result = {
+            'answer': f"Found {len(mid_block_stops)} mid-block stops on Illinois street.",
+            'additional_info': mid_block_stops[['stop_id', 'stop_name', 'stop_desc']].to_dict('records'),
+            'map': m
+        }
+        ```
+
+example_9:
+    feed: CTA
+    question: Map all routes that operate post midnight
+    answer: |
+        ```python
+        # Function to convert shape points to a LineString
+        def shape_to_linestring(shape_df):
+            return LineString(shape_df[['shape_pt_lon', 'shape_pt_lat']].values)
+        
+        # Identify routes operating after midnight
+        late_night_trips = feed.stop_times[feed.stop_times['departure_time'] > 86400]
+        late_night_routes = feed.trips[feed.trips['trip_id'].isin(late_night_trips['trip_id'])]['route_id'].unique()
+        
+        # Get unique shapes for these routes
+        late_night_shapes = feed.trips[feed.trips['route_id'].isin(late_night_routes)]['shape_id'].unique()
+        
+        # Create a map centered on the mean coordinates of all stops
+        center_lat = feed.stops['stop_lat'].mean()
+        center_lon = feed.stops['stop_lon'].mean()
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=12, tiles='CartoDB positron')
+        
+        # Plot each route
+        for shape_id in late_night_shapes:
+            shape_points = feed.shapes[feed.shapes['shape_id'] == shape_id]
+            if not shape_points.empty:
+                linestring = shape_to_linestring(shape_points)
+                route_id = feed.trips[feed.trips['shape_id'] == shape_id]['route_id'].iloc[0]
+                route_color = feed.routes[feed.routes['route_id'] == route_id]['route_color'].iloc[0]
+                color = f"#{route_color}" if pd.notna(route_color) else 'blue'
+        
+                folium.PolyLine(
+                    locations=list(zip(linestring.coords.xy[1], linestring.coords.xy[0])),
+                    color=color,
+                    weight=2,
+                    opacity=0.8,
+                    popup=f"Route: {route_id}"
+                ).add_to(m)
+        
+        # Add a legend
+        legend_html = '''
+        <div style="position: fixed; bottom: 50px; left: 50px; width: 220px; height: 60px; 
+            border:2px solid grey; z-index:9999; font-size:14px; background-color:white;
+            ">&nbsp; <b>Legend</b> <br>
+            &nbsp; Lines: Routes operating after midnight
+        </div>
+        '''
+        m.get_root().html.add_child(folium.Element(legend_html))
+        
+        result = {
+            "answer": f"Map of {len(late_night_routes)} routes operating after midnight",
+            "additional_info": "The map shows all routes that have trips departing after midnight (00:00). Each route is represented by a colored line on the map.",
+            "map": m
+        }
+        ```
+
+example_10:
+    feed: CUMTD
+    question: How far does the Orange route travel from University and Victor to University and Fourth in the eastbound direction?
+    answer: |
+        ```python
+        # Find the Orange route
+        orange_route = find_route(feed, "Orange")
+        if orange_route is None:
+            result = {
+                'answer': "Could not find the Orange route",
+                'additional_info': "Please check if the route name is correct."
+            }
+        else:
+            route_id = orange_route['route_id']
+        
+            # Find the stops at the intersections
+            start_stops = find_stops_by_intersection(feed, "University", "Victor") 
+            end_stops = find_stops_by_intersection(feed, "University", "Fourth")
+        
+            if start_stops.empty or end_stops.empty:
+                result = {
+                    'answer': "Could not find one or both of the specified stops",
+                    'additional_info': "Please check if the intersection names are correct."
+                }
+            else:
+                # Get eastbound trips for the Orange route
+                orange_trips = feed.trips[feed.trips['route_id'] == route_id]
+                eastbound_trips = orange_trips[orange_trips['direction_id'] == 0]
+        
+                if eastbound_trips.empty:
+                    result = {
+                        'answer': "Could not find eastbound trips for the Orange route",
+                        'additional_info': "Please check if the route has eastbound service."
+                    }
+                else:
+                    # Get stop times for eastbound trips
+                    stop_times = feed.stop_times[feed.stop_times['trip_id'].isin(eastbound_trips['trip_id'])]
+        
+                    # Find a trip that serves both stops
+                    valid_trip = None
+                    start_stop = None
+                    end_stop = None
+        
+                    for trip_id in eastbound_trips['trip_id']:
+                        trip_stops = stop_times[stop_times['trip_id'] == trip_id]
+                        trip_start = start_stops[start_stops['stop_id'].isin(trip_stops['stop_id'])]
+                        trip_end = end_stops[end_stops['stop_id'].isin(trip_stops['stop_id'])]
+        
+                        if not trip_start.empty and not trip_end.empty:
+                            valid_trip = trip_id
+                            start_stop = trip_start.iloc[0]
+                            end_stop = trip_end.iloc[0]
+                            break
+        
+                    if valid_trip is None:
+                        result = {
+                            'answer': "Could not find a trip that serves both stops",
+                            'additional_info': "The stops might not be on the same Orange route trip."
+                        }
+                    else:
+                        # Get the stop times for the valid trip
+                        trip_stops = stop_times[stop_times['trip_id'] == valid_trip].sort_values('stop_sequence')
+        
+                        # Calculate distance using shape_dist_traveled
+                        start_dist = trip_stops[trip_stops['stop_id'] == start_stop['stop_id']]['shape_dist_traveled'].iloc[0]
+                        end_dist = trip_stops[trip_stops['stop_id'] == end_stop['stop_id']]['shape_dist_traveled'].iloc[0]
+        
+                        distance = end_dist - start_dist
+                        distance_km = distance / 1000  # Convert to kilometers
+        
+                        # Get the shape for this trip
+                        shape_id = eastbound_trips[eastbound_trips['trip_id'] == valid_trip]['shape_id'].iloc[0]
+                        route_shape = feed.shapes[feed.shapes['shape_id'] == shape_id].sort_values('shape_pt_sequence')
+        
+                        # Create the map
+                        center_lat = (start_stop['stop_lat'] + end_stop['stop_lat']) / 2
+                        center_lon = (start_stop['stop_lon'] + end_stop['stop_lon']) / 2
+        
+                        m = folium.Map(location=[center_lat, center_lon], 
+                                     zoom_start=14,
+                                     tiles='CartoDB positron')
+        
+                        # Plot the route line
+                        route_coords = [[row['shape_pt_lat'], row['shape_pt_lon']] for _, row in route_shape.iterrows()]
+                        folium.PolyLine(route_coords, 
+                                      color=f"#{orange_route['route_color']}" if 'route_color' in orange_route else 'blue',
+                                      weight=3,
+                                      opacity=0.8).add_to(m)
+        
+                        # Add markers for start and end stops
+                        folium.Marker(
+                            [start_stop['stop_lat'], start_stop['stop_lon']],
+                            popup=f"Start: {start_stop['stop_name']}",
+                            icon=folium.Icon(color='green')
+                        ).add_to(m)
+        
+                        folium.Marker(
+                            [end_stop['stop_lat'], end_stop['stop_lon']],
+                            popup=f"End: {end_stop['stop_name']}",
+                            icon=folium.Icon(color='red')
+                        ).add_to(m)
+        
+                        result = {
+                            'answer': f"The Orange route travels {distance_km:.2f} kilometers from {start_stop['stop_name']} to {end_stop['stop_name']} in the eastbound direction.",
+                            'additional_info': f"Start Stop: {start_stop['stop_name']} (ID: {start_stop['stop_id']})\n"
+                                             f"End Stop: {end_stop['stop_name']} (ID: {end_stop['stop_id']})\n"
+                                             f"Route: {orange_route['route_long_name']}",
+                            'map': m
+                        }
+        ```
+
+example_11:
+    feed: CUMTD
+    question: Find directions from University and Victor to Illinois Terminal
+    answer: |
+        ```python
+        # Function to check if a trip is circular
+        def is_circular_trip(stop_times):
+            first_stop = stop_times.iloc[0]['stop_id']
+            last_stop = stop_times.iloc[-1]['stop_id']
+            return first_stop == last_stop
+
+        # Get all unique route_ids
+        all_routes = feed.routes['route_id'].unique()
+
+        circular_routes = []
+
+        # Progress bar
+        total_routes = len(all_routes)
+        my_bar = st.progress(0, text="Analyzing routes. Please wait.")
+
+        for i, route_id in enumerate(all_routes):
+            # Update progress bar
+            percent_complete = int((i + 1) / total_routes * 100)
+            progress_text = f"Analyzing Routes: {percent_complete}% complete. Current Route: {route_id}"
+            my_bar.progress(percent_complete, text=progress_text)
+
+            # Get all trips for this route
+            route_trips = feed.trips[feed.trips['route_id'] == route_id]['trip_id']
+
+            # Check if any trip of this route is circular
+            for trip_id in route_trips:
+                trip_stops = feed.stop_times[feed.stop_times['trip_id'] == trip_id].sort_values('stop_sequence')
+                if is_circular_trip(trip_stops):
+                    circular_routes.append(route_id)
+                    break  # If we found a circular trip, no need to check other trips of this route
+
+        # Remove duplicates
+        circular_routes = list(set(circular_routes))
+
+        # Get route details
+        circular_route_details = feed.routes[feed.routes['route_id'].isin(circular_routes)]
+
+        # Create a map
+        center_lat = feed.stops['stop_lat'].mean()
+        center_lon = feed.stops['stop_lon'].mean()
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles='CartoDB positron')
+
+        # Create a color palette for routes
+        color_palette = px.colors.qualitative.Plotly
+
+        # Create a feature group for the legend
+        feature_group = folium.FeatureGroup(name="Circular Routes")
+        m.add_child(feature_group)
+
+        # Plot each circular route
+        for i, route_id in enumerate(circular_routes):
+            # Get all shape_ids for this route
+            route_shape_ids = feed.trips[feed.trips['route_id'] == route_id]['shape_id'].unique()
+
+            for shape_id in route_shape_ids:
+                shape_points = feed.shapes[feed.shapes['shape_id'] == shape_id].sort_values('shape_pt_sequence')
+
+                # Get route information
+                route_name = feed.routes[feed.routes['route_id'] == route_id]['route_long_name'].iloc[0]
+
+                # Create a line from the shape points
+                line = list(zip(shape_points['shape_pt_lat'], shape_points['shape_pt_lon']))
+
+                # Add to map
+                color = color_palette[i % len(color_palette)]
+
+                folium.PolyLine(
+                    locations=line,
+                    color=color,
+                    weight=3,
+                    opacity=0.8,
+                    tooltip=f"Route: {route_name}"
+                ).add_to(feature_group)
+
+        # Add layer control to toggle the legend
+        folium.LayerControl().add_to(m)
+
+        # Prepare the result
+        result = {
+            "answer": f"Found {len(circular_routes)} circular routes.",
+            "additional_info": "Circular routes are those where the first and last stop are the same for at least one trip. "
+                            "The following routes are circular:\n\n" + 
+                            circular_route_details[['route_id', 'route_short_name', 'route_long_name']].to_string(index=False),
+            "map": m
+        }
+
+        # The result dictionary now contains the answer, additional information, and the map
+        ```
+
+example_12:
+    feed: SFMTA
+    question: Find the average speed for the route KBus
+    answer: |
+        ```python
+        # Find the KBus route
+        kbus_route = find_route(feed, "KBus")
+        if kbus_route is None:
+            result = {
+                'answer': "Could not find the KBus route",
+                'additional_info': "Please check if the route name is correct."
+            }
+        else:
+            route_id = kbus_route['route_id']
+        
+            # Get all trips for the KBus route
+            kbus_trips = feed.trips[feed.trips['route_id'] == route_id]
+        
+            if kbus_trips.empty:
+                result = {
+                    'answer': "No trips found for the KBus route",
+                    'additional_info': "Please check if the route has any scheduled trips."
+                }
+            else:
+                # Get stop times for these trips
+                stop_times = feed.stop_times[feed.stop_times['trip_id'].isin(kbus_trips['trip_id'])]
+        
+                # Calculate the total travel time for each trip
+                trip_durations = stop_times.groupby('trip_id').agg({
+                    'arrival_time': 'max',
+                    'departure_time': 'min',
+                    'shape_dist_traveled': 'max'
+                }).reset_index()
+        
+                # Calculate the duration in seconds for each trip
+                trip_durations['duration'] = trip_durations['arrival_time'] - trip_durations['departure_time']
+        
+                # Calculate average speed in km/h (distance in kilometers, time in hours)
+                trip_durations['average_speed'] = (trip_durations['shape_dist_traveled'] / (trip_durations['duration'] / 3600)).fillna(0)
+        
+                # Get the maximum average speed
+                average_speed = trip_durations['average_speed'].mean()
+        
+                result = {
+                    'answer': average_speed,
+                    'additional_info': f"The average speed for the KBus route is {average_speed:.2f} km/h."
+                }
+        ```
+example_13:
+    feed: CUMTD
+    question: Create a histogram of stop spacings with a threshold of 3km
+    answer: |
+        ```python
+        def calculate_stop_spacings(feed, threshold_m=3000):
+            # Ensure required data is present
+            if not hasattr(feed, 'stop_times') or not hasattr(feed, 'trips'):
+                raise ValueError("Required GTFS files are missing")
+        
+            # Merge stop_times with trips to get shape_id
+            stop_times = feed.stop_times.merge(feed.trips[['trip_id', 'shape_id']], on='trip_id')
+        
+            # Sort by shape_id, trip_id, and stop_sequence
+            stop_times_sorted = stop_times.sort_values(['shape_id', 'trip_id', 'stop_sequence'])
+        
+            # Calculate distance difference between consecutive stops
+            stop_times_sorted['dist_diff'] = stop_times_sorted.groupby(['shape_id', 'trip_id'])['shape_dist_traveled'].diff()
+        
+            # Filter out invalid distances and apply threshold
+            valid_distances = stop_times_sorted[(stop_times_sorted['dist_diff'] > 0) & (stop_times_sorted['dist_diff'] <= threshold_m)]['dist_diff']
+        
+            return valid_distances  
+        
+        def create_stop_spacing_histogram(distances_meters):
+            # Create histogram using plotly
+            fig = px.histogram(
+                distances_meters,
+                nbins=50,
+                labels={'value': 'Stop Spacing (meters)'},
+                title='Histogram of Stop Spacings (up to 3km)',
+                color_discrete_sequence=['#636EFA']
+            )
+            fig.update_layout(
+                xaxis_title='Stop Spacing (meters)',
+                yaxis_title='Frequency',
+                bargap=0.1
+            )
+        
+            return fig
+        
+        # Calculate stop spacings with 3km threshold
+        stop_spacings = calculate_stop_spacings(feed, threshold_m=3000)
+        
+        # Create histogram
+        histogram = create_stop_spacing_histogram(stop_spacings)
+        
+        # Calculate statistics
+        mean_spacing = stop_spacings.mean() * 1000  # Convert to meters
+        median_spacing = stop_spacings.median() * 1000  # Convert to meters
+        total_spacings = len(feed.stop_times['shape_dist_traveled'].diff())
+        filtered_spacings = len(stop_spacings)
+        excluded_spacings = total_spacings - filtered_spacings
+        
+        result = {
+            'answer': f"Created a histogram of stop spacings up to 3km. The mean stop spacing is {mean_spacing:.2f} meters, and the median is {median_spacing:.2f} meters.",
+            'additional_info': f"Total stop spacings analyzed: {filtered_spacings}. Excluded {excluded_spacings} spacings that were either invalid or beyond the 3km threshold.",
+            'plot': histogram
+        }
+        ```
+
+example_14:
+    feed: CUMTD
+    question: Map the top 5 busiest stops (most visits)
+    answer: |
+        ```python
+        # Validate GTFS data integrity
+        required_files = ['stop_times', 'stops']
+        for file in required_files:
+            if not hasattr(feed, file):
+                raise ValueError(f"Required GTFS file '{file}' is missing from the feed.")
+        
+        # Count the number of visits for each stop
+        stop_visits = feed.stop_times['stop_id'].value_counts().reset_index()
+        stop_visits.columns = ['stop_id', 'visit_count']
+        
+        # Merge with stops data to get stop names
+        top_stops = pd.merge(stop_visits, feed.stops[['stop_id', 'stop_name']], on='stop_id', how='left')
+        
+        # Sort by visit count and get top 5
+        top_5_stops = top_stops.sort_values('visit_count', ascending=False).head(5)
+        
+        # Prepare the result
+        result = {
+            "answer": top_5_stops[['stop_name', 'visit_count']].to_dict('records'),
+            "additional_info": f"Total number of stops: {len(feed.stops)}",
+        }
+        
+        # Create a map of the top 5 stops
+        m = folium.Map(location=[feed.stops['stop_lat'].mean(), feed.stops['stop_lon'].mean()], 
+                       zoom_start=12, tiles='CartoDB positron')
+        
+        for _, stop in top_5_stops.iterrows():
+            folium.Marker(
+                location=[feed.stops.loc[feed.stops['stop_id'] == stop['stop_id'], 'stop_lat'].values[0],
+                          feed.stops.loc[feed.stops['stop_id'] == stop['stop_id'], 'stop_lon'].values[0]],
+                popup=f"{stop['stop_name']}<br>Visits: {stop['visit_count']}",
+                tooltip=stop['stop_name']
+            ).add_to(m)
+        
+        result['map'] = m
+        
+        # Output format: Dictionary with keys 'answer' (list of dictionaries), 'additional_info' (string), and 'map' (folium.Map object)
+        ```
+
+example_15:
+    feed: DART
+    question: Create a frequency distribution plot showing number of unique shapes for each route
+    answer: |
+        ```python
+        # Validate GTFS data integrity
+        required_files = ['routes', 'trips', 'shapes']
+        for file in required_files:
+            if not hasattr(feed, file):
+                raise ValueError(f"Required GTFS file '{file}' is missing from the feed.")
+        
+        # Count unique shapes for each route
+        route_shape_counts = (
+            feed.trips.groupby('route_id')['shape_id']
+            .nunique()
+            .sort_values(ascending=False)
+            .reset_index(name='unique_shape_count')
+        )
+        
+        # Merge with route information
+        route_info = feed.routes[['route_id', 'route_short_name', 'route_long_name']]
+        route_shape_counts = pd.merge(route_shape_counts, route_info, on='route_id')
+        
+        # Create a combined route name
+        route_shape_counts['route_name'] = route_shape_counts['route_short_name'] + ' - ' + route_shape_counts['route_long_name']
+        
+        # Create the frequency distribution plot
+        fig = px.bar(
+            route_shape_counts,
+            x='route_name',
+            y='unique_shape_count',
+            title='Number of Unique Shapes per Route',
+            labels={'route_name': 'Route', 'unique_shape_count': 'Number of Unique Shapes'},
+            color='unique_shape_count',
+            color_continuous_scale='Viridis'
+        )
+        
+        # Customize the layout
+        fig.update_layout(
+            xaxis_title='Route',
+            yaxis_title='Number of Unique Shapes',
+            xaxis_tickangle=-45,
+            xaxis_tickmode='array',
+            xaxis_tickvals=list(range(len(route_shape_counts))),
+            xaxis_ticktext=route_shape_counts['route_name'],
+            height=600,
+            margin=dict(b=100)
+        )
+        
+        # Store the results
+        result = {
+            'answer': f"The plot shows the distribution of unique shapes across {len(route_shape_counts)} routes.",
+            'additional_info': f"The route with the most unique shapes is {route_shape_counts.iloc[0]['route_name']} with {route_shape_counts.iloc[0]['unique_shape_count']} unique shapes.",
+            'plot': fig
+        }
+        
+        # The result dictionary now contains the plot and relevant information
+        ```
+
+example_16:
+    feed: SFMTA
+    question: Create a line plot visualizing the distance traveled by buses on the FULTON route from 6:00 AM to 9:00 AM, focusing only on direction 0
+    answer: |
+        ```python
+        # Step 1: Find the route_id for FULTON route
+        fulton_route = find_route(feed, "FULTON")
+        if fulton_route is None:
+            raise ValueError("FULTON route not found in the feed")
+        
+        route_id = fulton_route.route_id
+        
+        # Step 2: Filter trips for the FULTON route, direction 0
+        trips = feed.trips[
+            (feed.trips.route_id == route_id) & 
+            (feed.trips.direction_id == 0)
+        ]
+        
+        # Step 3: Get stop times for these trips
+        stop_times = feed.stop_times[feed.stop_times.trip_id.isin(trips.trip_id)]
+        
+        # Step 4: Filter for trips between 6-9 AM
+        start_time = 6 * 3600  # 6 AM in seconds since midnight
+        end_time = 9 * 3600    # 9 AM in seconds since midnight
+        
+        filtered_stop_times = stop_times[
+            (stop_times.departure_time >= start_time) & 
+            (stop_times.departure_time <= end_time)
+        ]
+        
+        # Step 5: Sort the data by trip_id and stop_sequence
+        filtered_stop_times = filtered_stop_times.sort_values(['trip_id', 'stop_sequence'])
+        
+        # Step 6: Create a DataFrame for plotting
+        plot_data = filtered_stop_times[['trip_id', 'departure_time', 'shape_dist_traveled']].copy()
+        
+        # Convert departure_time to hours for better readability
+        plot_data['departure_time_hours'] = plot_data['departure_time'] / 3600
+        
+        # Step 7: Create the line plot
+        fig = px.line(plot_data, 
+                      x='departure_time_hours', 
+                      y='shape_dist_traveled', 
+                      color='trip_id',
+                      labels={
+                          'departure_time_hours': 'Time of Day (hours)',
+                          'shape_dist_traveled': 'Distance Traveled (km)',
+                          'trip_id': 'Trip ID'
+                      },
+                      title=f'Distance Traveled vs Time for FULTON Route (6-9 AM, Direction 0)')
+        
+        # Customize the layout
+        fig.update_layout(
+            xaxis_title='Time of Day (hours)',
+            yaxis_title='Distance Traveled (km)',
+            legend_title='Trip ID',
+            xaxis = dict(
+                tickmode = 'array',
+                tickvals = [6, 7, 8, 9],
+                ticktext = ['6:00 AM', '7:00 AM', '8:00 AM', '9:00 AM']
+            )
+        )
+        
+        # Store the results
+        result = {
+            'answer': f"Created a line plot showing distance traveled vs time for {len(plot_data['trip_id'].unique())} trips of the FULTON route from 6-9 AM in direction 0.",
+            'additional_info': f"The plot shows the progression of each trip over time, with the y-axis representing the cumulative distance traveled. Each line represents a unique trip.",
+            'plot': fig
+        }
+        
+        # The result dictionary now contains the plot and can be further processed or displayed as needed.
+        ```
+        
+example_17:
+    feed: SFMTA
+    question: Create a scatter plot of average stop spacing vs average trip length aggregated by route
+    answer: |
+        ```python
+        import pandas as pd
+        import numpy as np
+        import plotly.express as px
+        
+        # Validate GTFS data integrity
+        required_tables = ['routes', 'trips', 'stop_times', 'stops']
+        for table in required_tables:
+            if not hasattr(feed, table):
+                raise ValueError(f"Required GTFS table '{table}' is missing from the feed.")
+        
+        # Function to calculate route metrics
+        def calculate_route_metrics(feed):
+            # Merge trips with stop_times
+            trip_stops = pd.merge(feed.trips, feed.stop_times, on='trip_id')
+        
+            # Group by route_id and trip_id to get trip lengths
+            trip_lengths = trip_stops.groupby(['route_id', 'trip_id']).agg({
+                'shape_dist_traveled': lambda x: x.max() - x.min(),
+                'stop_sequence': 'max'
+            }).reset_index()
+        
+            # Calculate average trip length and number of stops per route
+            route_metrics = trip_lengths.groupby('route_id').agg({
+                'shape_dist_traveled': 'mean',
+                'stop_sequence': 'mean'
+            }).reset_index()
+        
+            # Calculate average stop spacing
+            route_metrics['avg_stop_spacing'] = route_metrics['shape_dist_traveled'] / (route_metrics['stop_sequence'] - 1)
+        
+            return route_metrics
+        
+        # Calculate route metrics
+        route_metrics = calculate_route_metrics(feed)
+        
+        # Create scatter plot
+        fig = px.scatter(
+            route_metrics,
+            x='avg_stop_spacing',
+            y='shape_dist_traveled',
+            hover_data=['route_id'],
+            labels={
+                'avg_stop_spacing': 'Average Stop Spacing (km)',
+                'shape_dist_traveled': 'Average Trip Length (km)'
+            },
+            title='Average Stop Spacing vs Average Trip Length by Route'
+        )
+        
+        # Customize the layout
+        fig.update_layout(
+            xaxis_title='Average Stop Spacing (km)',
+            yaxis_title='Average Trip Length (km)',
+            hoverlabel=dict(bgcolor="white", font_size=12),
+            hovermode='closest'
+        )
+        
+        # Store results
+        result = {
+            'answer': "Scatter plot of average stop spacing vs average trip length by route has been created.",
+            'additional_info': f"The plot includes data for {len(route_metrics)} routes.",
+            'dataframe': route_metrics,
+            'plot': fig
+        }
+        
+        # The result dictionary now contains the scatter plot and the dataframe with route metrics
+        ```
+
+example_18:
+    feed: SFMTA
+    question: Create a boxplot of segment speeds by time period of the day
+    answer: |
+        ```python
+        # Function to categorize time into periods
+        def categorize_time_period(seconds):
+            hour = seconds // 3600
+            if 6 <= hour < 9:
+                return 'Morning Peak'
+            elif 9 <= hour < 15:
+                return 'Midday'
+            elif 15 <= hour < 19:
+                return 'Evening Peak'
+            else:
+                return 'Night'
+        
+        # Ensure required data is present
+        if not all(hasattr(feed, attr) for attr in ['stop_times', 'trips', 'routes']):
+            raise ValueError("Required GTFS files are missing")
+        
+        # Merge stop_times with trips and routes
+        df = feed.stop_times.merge(feed.trips, on='trip_id').merge(feed.routes, on='route_id')
+        
+        # Sort the dataframe
+        df = df.sort_values(['trip_id', 'stop_sequence'])
+        
+        # Calculate time and distance between consecutive stops
+        df['time_diff'] = df.groupby('trip_id')['arrival_time'].diff()
+        df['dist_diff'] = df.groupby('trip_id')['shape_dist_traveled'].diff()
+        
+        # Calculate speed in km/h
+        df['speed'] = (df['dist_diff'] / df['time_diff']) * 3600  # km/h
+        
+        # Remove invalid speeds (e.g., inf, NaN, negative)
+        df = df[(df['speed'] > 0) & (df['speed'] < 150)]  # Assuming max speed of 150 km/h
+        
+        # Categorize time periods
+        df['time_period'] = df['arrival_time'].apply(categorize_time_period)
+        
+        # Create the boxplot
+        fig = px.box(df, x='time_period', y='speed', 
+                     title='Segment Speeds by Time Period',
+                     labels={'speed': 'Speed (km/h)', 'time_period': 'Time Period'},
+                     category_orders={'time_period': ['Morning Peak', 'Midday', 'Evening Peak', 'Night']})
+        
+        # Customize the layout
+        fig.update_layout(
+            xaxis_title='Time Period',
+            yaxis_title='Speed (km/h)',
+            showlegend=False
+        )
+        
+        # Calculate summary statistics
+        summary_stats = df.groupby('time_period')['speed'].agg(['mean', 'median', 'std']).round(2)
+        
+        # Prepare the result
+        result = {
+            'answer': "Boxplot of segment speeds by time period of the day has been created.",
+            'additional_info': f"Summary statistics:\n{summary_stats.to_string()}",
+            'plot': fig
+        }
+        
+        # Output: result dictionary containing the answer, additional info, and the plot
+        ```
+
+example_19:
+    feed: CUMTD
+    question: Display the services and their respective routes operational today
+    answer: |
+        ```python
+        import pandas as pd
+        from datetime import date
+        
+        # Get today's date
+        today = date.today()
+        day_of_week = today.strftime("%A").lower()
+        
+        # Function to check if a service is active today
+        def is_service_active(row):
+            if row['start_date'] <= today <= row['end_date']:
+                return row[day_of_week] == 1
+            return False
+        
+        # Filter active services for today
+        active_services = feed.calendar[feed.calendar.apply(is_service_active, axis=1)]
+        
+        # Get active service IDs
+        active_service_ids = set(active_services['service_id'])
+        
+        # Check for exceptions in calendar_dates
+        if hasattr(feed, 'calendar_dates'):
+            exceptions = feed.calendar_dates[feed.calendar_dates['date'] == today]
+            for _, exception in exceptions.iterrows():
+                if exception['exception_type'] == 1:  # Service added
+                    active_service_ids.add(exception['service_id'])
+                elif exception['exception_type'] == 2:  # Service removed
+                    active_service_ids.discard(exception['service_id'])
+        
+        # Get routes for active services
+        active_trips = feed.trips[feed.trips['service_id'].isin(active_service_ids)]
+        active_routes = feed.routes[feed.routes['route_id'].isin(active_trips['route_id'])]
+        
+        # Create a dictionary to store services and their routes
+        service_routes = {service_id: [] for service_id in active_service_ids}
+        
+        # Populate the dictionary
+        for _, trip in active_trips.iterrows():
+            service_routes[trip['service_id']].append(trip['route_id'])
+        
+        # Remove duplicates and sort route IDs for each service
+        for service_id in service_routes:
+            service_routes[service_id] = sorted(set(service_routes[service_id]))
+        
+        # Create a DataFrame with service IDs and their routes
+        result_df = pd.DataFrame([(service_id, ', '.join(routes)) for service_id, routes in service_routes.items()],
+                                 columns=['Service ID', 'Route IDs'])
+        
+        # Sort the DataFrame by Service ID
+        result_df = result_df.sort_values('Service ID').reset_index(drop=True)
+        
+        # Prepare the result
+        result = {
+            'answer': f"There are {len(active_service_ids)} active services today ({today}), operating {len(active_routes)} unique routes.",
+            'additional_info': f"Today is {today.strftime('%A')}. The active services and their respective routes are shown in the dataframe.",
+            'dataframe': result_df
+        }
+        
+        # Output: result dictionary containing the answer, additional info, and a DataFrame
+        ```
+
+example_20:
+    feed: DART
+    question: Create a histogram of travel times possible by considering all combinations of start and end stops, using all trips of route 408
+    answer: |
+        ```python
+        from itertools import combinations
+                
+        # Find the route_id for route 408
+        route_408 = find_route(feed, "408")
+        if route_408 is None:
+            raise ValueError("Route 408 not found in the feed.")
+        
+        route_id = route_408.route_id
+        
+        # Get all trips for route 408
+        trips = feed.trips[feed.trips.route_id == route_id]
+        
+        # Get stop times for these trips
+        stop_times = feed.stop_times[feed.stop_times.trip_id.isin(trips.trip_id)]
+        
+        # Calculate travel times for all combinations of stops
+        travel_times = []
+        
+        for trip_id in trips.trip_id:
+            trip_stop_times = stop_times[stop_times.trip_id == trip_id].sort_values('stop_sequence')
+            stops = trip_stop_times[['stop_id', 'arrival_time']]
+        
+            for start, end in combinations(stops.index, 2):
+                travel_time = stops.loc[end, 'arrival_time'] - stops.loc[start, 'arrival_time']
+                if travel_time > 0:  # Ensure we're not getting negative travel times
+                    travel_times.append(travel_time / 60)  # Convert to minutes
+        
+        # Create histogram
+        fig = px.histogram(
+            x=travel_times,
+            nbins=50,
+            labels={'x': 'Travel Time (minutes)', 'y': 'Frequency'},
+            title=f'Distribution of Travel Times for Route 408',
+        )
+        fig.update_layout(bargap=0.1)
+        
+        # Prepare the result
+        result = {
+            'answer': f"Created a histogram of travel times for route 408.",
+            'additional_info': f"The histogram shows the distribution of travel times between all possible combinations of stops on route 408. The x-axis represents travel time in minutes, and the y-axis shows the frequency of each travel time.",
+            'plot': fig
+        }
+        
+        # Add some statistics to the additional info
+        result['additional_info'] += f"\n\nStatistics:\n"
+        result['additional_info'] += f"Minimum travel time: {min(travel_times):.2f} minutes\n"
+        result['additional_info'] += f"Maximum travel time: {max(travel_times):.2f} minutes\n"
+        result['additional_info'] += f"Average travel time: {np.mean(travel_times):.2f} minutes\n"
+        result['additional_info'] += f"Median travel time: {np.median(travel_times):.2f} minutes"
+        ```
+
+example_21:
+    feed: SFMTA
+    question: Map the unique stops that are either the first or last stop of a route
+    answer: |
+        ```python
+        # Step 1: Identify the first and last stops for each trip
+        first_last_stops = feed.stop_times.groupby('trip_id').agg(
+            first_stop=('stop_id', 'first'),
+            last_stop=('stop_id', 'last')
+        ).reset_index()
+        
+        # Step 2: Get unique first and last stops
+        unique_stops = pd.concat([
+            first_last_stops['first_stop'],
+            first_last_stops['last_stop']
+        ]).unique()
+        
+        # Step 3: Filter the stops DataFrame to get details of these unique stops
+        unique_stops_df = feed.stops[feed.stops['stop_id'].isin(unique_stops)]
+        
+        # Step 4: Create a map centered on the average latitude and longitude of the stops
+        center_lat = unique_stops_df['stop_lat'].mean()
+        center_lon = unique_stops_df['stop_lon'].mean()
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=12, tiles='CartoDB positron')
+        
+        # Step 5: Add markers for each unique stop
+        for _, stop in unique_stops_df.iterrows():
+            folium.Marker(
+                [stop['stop_lat'], stop['stop_lon']],
+                popup=f"Stop: {stop['stop_name']}<br>ID: {stop['stop_id']}",
+                icon=folium.Icon(color='blue', icon='info-sign')
+            ).add_to(m)
+        
+        # Prepare the result
+        result = {
+            'answer': f"Mapped {len(unique_stops_df)} unique stops that are either the first or last stop of a route.",
+            'additional_info': "These stops are critical as they mark the start or end of trips in the transit network.",
+            'map': m
+        }
+        ```
+
+example_22: 
+    feed: DART
+    question: Map all bus stops that are within 200m of a Light Rail stop
+    answer: |
+        ```python
+        from geopy.distance import geodesic
+        from shapely.geometry import Point
+        # Function to find nearby stops
+        def find_nearby_stops(reference_stops, all_stops, max_distance=200):
+            nearby_stops = []
+            for _, ref_stop in reference_stops.iterrows():
+                ref_point = (ref_stop['stop_lat'], ref_stop['stop_lon'])
+                for _, stop in all_stops.iterrows():
+                    stop_point = (stop['stop_lat'], stop['stop_lon'])
+                    distance = geodesic(ref_point, stop_point).meters
+                    if distance <= max_distance and distance > 0:  # Exclude the reference stop itself
+                        nearby_stops.append({
+                            'ref_stop_id': ref_stop['stop_id'],
+                            'ref_stop_name': ref_stop['stop_name'],
+                            'nearby_stop_id': stop['stop_id'],
+                            'nearby_stop_name': stop['stop_name'],
+                            'distance': distance,
+                            'nearby_stop_lat': stop['stop_lat'],
+                            'nearby_stop_lon': stop['stop_lon']
+                        })
+            return pd.DataFrame(nearby_stops)
+        
+        # Identify Light Rail stops (assuming route_type 0 is Light Rail)
+        light_rail_routes = feed.routes[feed.routes['route_type'] == 0]['route_id'].tolist()
+        light_rail_trips = feed.trips[feed.trips['route_id'].isin(light_rail_routes)]
+        light_rail_stop_ids = feed.stop_times[feed.stop_times['trip_id'].isin(light_rail_trips['trip_id'])]['stop_id'].unique()
+        light_rail_stops = feed.stops[feed.stops['stop_id'].isin(light_rail_stop_ids)]
+        
+        # Identify bus stops (assuming route_type 3 is Bus)
+        bus_routes = feed.routes[feed.routes['route_type'] == 3]['route_id'].tolist()
+        bus_trips = feed.trips[feed.trips['route_id'].isin(bus_routes)]
+        bus_stop_ids = feed.stop_times[feed.stop_times['trip_id'].isin(bus_trips['trip_id'])]['stop_id'].unique()
+        bus_stops = feed.stops[feed.stops['stop_id'].isin(bus_stop_ids)]
+        
+        # Find bus stops within 200m of Light Rail stops
+        nearby_bus_stops = find_nearby_stops(light_rail_stops, bus_stops)
+        
+        # Create a map centered on the mean coordinates of Light Rail stops
+        center_lat = light_rail_stops['stop_lat'].mean()
+        center_lon = light_rail_stops['stop_lon'].mean()
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=12, tiles='CartoDB positron')
+        
+        # Add Light Rail stops to the map
+        for _, stop in light_rail_stops.iterrows():
+            folium.CircleMarker(
+                location=[stop['stop_lat'], stop['stop_lon']],
+                radius=6,
+                popup=f"Light Rail Stop: {stop['stop_name']}",
+                color='red',
+                fill=True,
+                fillColor='red'
+            ).add_to(m)
+        
+        # Add nearby bus stops to the map
+        for _, stop in nearby_bus_stops.iterrows():
+            folium.CircleMarker(
+                location=[stop['nearby_stop_lat'], stop['nearby_stop_lon']],
+                radius=4,
+                popup=f"Bus Stop: {stop['nearby_stop_name']}<br>Near: {stop['ref_stop_name']}<br>Distance: {stop['distance']:.2f}m",
+                color='blue',
+                fill=True,
+                fillColor='blue'
+            ).add_to(m)
+        
+        # Add a legend
+        legend_html = '''
+        <div style="position: fixed; bottom: 50px; left: 50px; width: 220px; height: 90px; 
+            border:2px solid grey; z-index:9999; font-size:14px; background-color:white;
+            ">&nbsp;<b>Legend</b><br>
+            &nbsp;<i class="fa fa-circle" style="color:red"></i> Light Rail Stop<br>
+            &nbsp;<i class="fa fa-circle" style="color:blue"></i> Bus Stop (within 200m)<br>
+            </div>
+        '''
+        m.get_root().html.add_child(folium.Element(legend_html))
+        
+        # Store results
+        result = {
+            'answer': f"Found {len(nearby_bus_stops)} bus stops within 200m of Light Rail stops.",
+            'additional_info': f"There are {len(light_rail_stops)} Light Rail stops and {len(bus_stops)} total bus stops in the network.",
+            'map': m
+        }
+        
+        # Optional: Create a DataFrame with the nearby bus stops information
+        result['dataframe'] = nearby_bus_stops[['ref_stop_name', 'nearby_stop_name', 'distance']]
+        ```
+
+example_23:
+    feed: DART
+    category: Basic Data Operations
+    question: Make a pie chart of the route type distribution
+    answer: |
+        ```python
+        # Count the number of routes for each route type
+        route_type_counts = feed.routes['route_type'].value_counts().reset_index()
+        route_type_counts.columns = ['route_type', 'count']
+        
+        # Define route type names
+        route_type_names = {
+            0: 'Light Rail',
+            1: 'Subway',
+            2: 'Rail',
+            3: 'Bus',
+            4: 'Ferry',
+            5: 'Cable Car',
+            6: 'Gondola',
+            7: 'Funicular',
+            11: 'Trolleybus',
+            12: 'Monorail'
+        }
+        
+        # Map route types to their names
+        route_type_counts['route_type_name'] = route_type_counts['route_type'].map(route_type_names)
+        
+        # Create the pie chart
+        fig = px.pie(route_type_counts, 
+                     values='count', 
+                     names='route_type_name', 
+                     title='Distribution of Route Types',
+                     hover_data=['count'],
+                     labels={'count': 'Number of Routes'})
+        
+        # Update layout for better readability
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        fig.update_layout(
+            uniformtext_minsize=12,
+            uniformtext_mode='hide',
+            legend_title_text='Route Types'
+        )
+        
+        # Prepare the result dictionary
+        result = {
+            'answer': f"Created a pie chart showing the distribution of {len(route_type_counts)} different route types.",
+            'additional_info': f"Total number of routes: {route_type_counts['count'].sum()}",
+            'plot': fig,
+            'dataframe': route_type_counts
+        }
+        
+        # Add textual description of the distribution
+        route_type_description = route_type_counts.sort_values('count', ascending=False).apply(
+            lambda row: f"{row['route_type_name']}: {row['count']} ({row['count']/route_type_counts['count'].sum()*100:.1f}%)", 
+            axis=1
+        ).tolist()
+        
+        result['additional_info'] += "\nRoute type distribution:\n" + "\n".join(route_type_description)
+        ```
+
+example_24:
+    feed: SFMTA
+    question: Split the day into time zones and create a spider plot for average number of trips per hour
+    answer: |
+        ```python
+        def split_day_and_create_spider_plot(feed):
+            # Ensure stop_times is present in the feed
+            if not hasattr(feed, 'stop_times'):
+                raise ValueError("stop_times not found in the GTFS feed")
+        
+            # Convert arrival_time to hours
+            feed.stop_times['hour'] = feed.stop_times['arrival_time'] // 3600
+        
+            # Count trips per hour
+            trips_per_hour = feed.stop_times.groupby('hour')['trip_id'].nunique().reindex(range(24), fill_value=0)
+        
+            # Define time zones
+            time_zones = {
+                'Early Morning': [0, 1, 2, 3, 4, 5],
+                'Morning Peak': [6, 7, 8, 9],
+                'Midday': [10, 11, 12, 13, 14],
+                'Afternoon Peak': [15, 16, 17, 18],
+                'Evening': [19, 20, 21, 22, 23]
+            }
+        
+            # Calculate average trips per hour for each time zone
+            avg_trips_per_zone = {zone: trips_per_hour[hours].mean() for zone, hours in time_zones.items()}
+        
+            # Prepare data for the spider plot
+            df_plot = pd.DataFrame(list(avg_trips_per_zone.items()), columns=['Time Zone', 'Average Trips'])
+        
+            # Create the spider plot
+            fig = px.line_polar(df_plot, r='Average Trips', theta='Time Zone', line_close=True)
+            fig.update_traces(fill='toself')
+            fig.update_layout(
+                title='Average Number of Trips per Hour by Time Zone',
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, df_plot['Average Trips'].max() * 1.1]
+                    )
+                )
+            )
+        
+            result = {
+                'answer': "Spider plot of average number of trips per hour by time zone created successfully.",
+                'additional_info': f"Time zones used: {', '.join(time_zones.keys())}",
+                'plot': fig
+            }
+        
+            return result
+        
+        # Call the function
+        result = split_day_and_create_spider_plot(feed)
+        ```
+
+example_25:
+    feed: SFMTA
+    question: Plot the number of trips operational for every service day in the calendar
+    answer: |
+        ```python
+        from datetime import timedelta
+        # Validate GTFS data integrity
+        required_tables = ['calendar', 'trips']
+        for table in required_tables:
+            if not hasattr(feed, table):
+                raise ValueError(f"Required GTFS table '{table}' is missing from the feed.")
+        
+        # Create a dictionary to store the count of trips for each day
+        days_of_week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        trip_counts = {day: 0 for day in days_of_week}
+        
+        # Count the number of trips for each service_id
+        service_trip_counts = feed.trips.groupby('service_id').size().reset_index(name='trip_count')
+        
+        # Merge with calendar data
+        calendar_with_trips = pd.merge(feed.calendar, service_trip_counts, on='service_id', how='left')
+        calendar_with_trips['trip_count'] = calendar_with_trips['trip_count'].fillna(0)
+        
+        # Calculate the number of trips for each day
+        for day in days_of_week:
+            trip_counts[day] = (calendar_with_trips[day] * calendar_with_trips['trip_count']).sum()
+        
+        # Create a DataFrame for plotting
+        plot_data = pd.DataFrame(list(trip_counts.items()), columns=['Day', 'Number of Trips'])
+        
+        # Create the bar plot
+        fig = px.bar(plot_data, x='Day', y='Number of Trips', 
+                     title='Number of Trips Operational for Each Service Day',
+                     labels={'Number of Trips': 'Number of Trips', 'Day': 'Day of Week'},
+                     color='Day', color_discrete_sequence=px.colors.qualitative.Set3)
+        
+        # Customize the layout
+        fig.update_layout(xaxis_title='Day of Week',
+                          yaxis_title='Number of Trips',
+                          xaxis={'categoryorder':'array', 'categoryarray':days_of_week})
+        
+        # Store the results
+        result = {
+            'answer': "The plot shows the number of trips operational for each service day in the calendar.",
+            'additional_info': "The data is based on the calendar and trips information in the GTFS feed.",
+            'plot': fig
+        }
+        
+        # The 'result' dictionary now contains the plot and can be further processed or displayed as needed.
+        ```
+
+example_26:
+    feed: DART
+    question: Plot the number of trips operational for every calendar day the feed is in service for
+    answer: |
+        ```python
+        # Get the start and end date from the feed_info
+        start_date = feed.feed_info["feed_start_date"].iloc[0]
+        end_date = feed.feed_info["feed_end_date"].iloc[0]
+        
+        # Create a date range for the entire service period
+        date_range = pd.date_range(start=start_date, end=end_date)
+        date_range = [date.date() for date in date_range]
+        
+        # Prepare a dictionary to hold the trip counts for each date
+        date_trip_count = {}
+        
+        # Iterate over each date in the service period
+        for date in date_range:
+            day_of_week = date.strftime("%A").lower()
+        
+            # Get active services for the date from calendar.txt
+            active_services = set(feed.calendar[
+                (feed.calendar["start_date"] <= date) &
+                (feed.calendar["end_date"] >= date) &
+                (feed.calendar[day_of_week] == 1)
+            ].service_id)
+        
+            # Apply exceptions from calendar_dates.txt
+            exceptions = feed.calendar_dates[feed.calendar_dates["date"] == date]
+            for _, exception in exceptions.iterrows():
+                if exception["exception_type"] == 1:
+                    active_services.add(exception["service_id"])
+                elif exception["exception_type"] == 2:
+                    active_services.discard(exception["service_id"])
+        
+            # Count trips for active services
+            trips = feed.trips[feed.trips["service_id"].isin(active_services)]
+            date_trip_count[date] = trips.shape[0]
+        
+        # Convert the dictionary to a DataFrame for plotting
+        trip_count_df = pd.DataFrame.from_dict(date_trip_count, orient='index', columns=['trip_count'])
+        
+        # Create a plot using plotly express
+        fig = px.line(trip_count_df.reset_index(), x='index', y='trip_count', 
+                        title='Number of Trips Operational for Each Calendar Day',
+                        labels={'index': 'Date', 'trip_count': 'Number of Trips'})
+        
+        # Prepare the result
+        result = {
+            'answer': f"The plot shows the number of operational trips for each day from {start_date} to {end_date}.",
+            'additional_info': f"The minimum number of trips on a day is {trip_count_df['trip_count'].min()}, and the maximum is {trip_count_df['trip_count'].max()}.",
+            'plot': fig
+        }
+        
+        # Output: result dictionary containing the plot and additional information
+        ```
+
+example_27:
+    feed: SFMTA
+    question: Map all the routes shapes (without stops) in the feed
+    answer: |
+        ```python
+        # Function to get unique shapes for a route
+        def get_unique_shapes(route_id):
+            trip_shape_ids = feed.trips[feed.trips['route_id'] == route_id]['shape_id'].unique()
+            return feed.shapes[feed.shapes['shape_id'].isin(trip_shape_ids)]
+        
+        # Create a base map
+        m = folium.Map(location=[37.7749, -122.4194], zoom_start=12, tiles='CartoDB Positron')
+        
+        # Get unique route IDs
+        unique_routes = feed.routes['route_id'].unique()
+        
+        # Iterate through each route
+        for route_id in unique_routes:
+            route_info = feed.routes[feed.routes['route_id'] == route_id].iloc[0]
+            route_color = f"#{route_info['route_color']}" if pd.notna(route_info['route_color']) else '#005B95'
+        
+            # Get shapes for the route
+            route_shapes = get_unique_shapes(route_id)
+        
+            # Group shapes by shape_id and create LineStrings
+            for shape_id, shape_points in route_shapes.groupby('shape_id'):
+                coords = shape_points[['shape_pt_lat', 'shape_pt_lon']].values.tolist()
+                line = LineString([(point[1], point[0]) for point in coords])
+        
+                # Add the shape to the map
+                folium.PolyLine(
+                    locations=coords,
+                    color=route_color,
+                    weight=3,
+                    opacity=0.8,
+                    tooltip=f"Route: {route_info['route_short_name']} - {route_info['route_long_name']}"
+                ).add_to(m)
+        
+        # Fit the map bounds to include all shapes
+        m.fit_bounds(m.get_bounds())
+        
+        result = {
+            'answer': f"Created a map with shapes for {len(unique_routes)} routes.",
+            'additional_info': "The map shows the shapes of all routes in the GTFS feed. Each route is represented by its unique color if available, otherwise a default blue color is used. Hover over a route to see its short name and long name.",
+            'map': m
+        }
+        ```
+
+example_28:
+    feed: SFMTA
+    question: Map all routes that intersect with SUNSET route at least once
+    answer: |
+        ```python
+        # Function to get all shapes for a route
+        def get_route_shapes(feed, route_id):
+            trip_ids = feed.trips[feed.trips['route_id'] == route_id]['trip_id'].unique()
+            shape_ids = feed.trips[feed.trips['trip_id'].isin(trip_ids)]['shape_id'].unique()
+            return shape_ids
+        
+        # Function to create a LineString from shape points
+        def create_linestring(feed, shape_id):
+            shape_points = feed.shapes[feed.shapes['shape_id'] == shape_id].sort_values('shape_pt_sequence')
+            return LineString(shape_points[['shape_pt_lon', 'shape_pt_lat']].values)
+        
+        # Find the SUNSET route
+        sunset_route = find_route(feed, "SUNSET")
+        if sunset_route is None:
+            raise ValueError("SUNSET route not found")
+        
+        sunset_route_id = sunset_route['route_id']
+        
+        # Get all shapes for the SUNSET route
+        sunset_shapes = get_route_shapes(feed, sunset_route_id)
+        
+        # Create LineStrings for all SUNSET shapes
+        sunset_lines = [create_linestring(feed, shape_id) for shape_id in sunset_shapes]
+        
+        # Combine all SUNSET lines into a single MultiLineString
+        sunset_multiline = gpd.GeoSeries([LineString(line) for line in sunset_lines]).unary_union
+        
+        # Find all routes that intersect with the SUNSET route
+        intersecting_routes = []
+        for route_id in feed.routes['route_id'].unique():
+            if route_id == sunset_route_id:
+                continue
+            route_shapes = get_route_shapes(feed, route_id)
+            for shape_id in route_shapes:
+                line = create_linestring(feed, shape_id)
+                if line.intersects(sunset_multiline):
+                    intersecting_routes.append((route_id, line))
+                    break  # We only need one intersection per route
+        
+        # Create a map
+        m = folium.Map(location=[feed.stops['stop_lat'].mean(), feed.stops['stop_lon'].mean()], zoom_start=12, tiles='CartoDB positron')
+        
+        # Add SUNSET route to the map
+        for line in sunset_lines:
+            folium.PolyLine(locations=[(coord[1], coord[0]) for coord in line.coords], 
+                            color='red', weight=4, opacity=0.8, 
+                            popup=f"SUNSET Route ({sunset_route_id})").add_to(m)
+        
+        # Add intersecting routes to the map
+        for route_id, line in intersecting_routes:
+            route_color = feed.routes[feed.routes['route_id'] == route_id]['route_color'].iloc[0]
+            if pd.isna(route_color):
+                route_color = 'blue'  # Default color if not specified
+            else:
+                route_color = f"#{route_color}"
+        
+            folium.PolyLine(locations=[(coord[1], coord[0]) for coord in line.coords], 
+                            color=route_color, weight=2, opacity=0.6, 
+                            popup=f"Route {route_id}").add_to(m)
+        
+        # Prepare the result
+        result = {
+            'answer': f"Found {len(intersecting_routes)} routes that intersect with the SUNSET route.",
+            'additional_info': f"The SUNSET route ID is {sunset_route_id}. Intersecting routes are shown on the map.",
+            'map': m
+        }
+        
+        # Output: result dictionary containing the answer, additional info, and the map
+        ```
+
+example_29:
+    feed: CUMTD
+    question: Create a polar chart to visualize the frequency of route segments by their bearing direction. Round to the nearest 10 degrees.
+    answer: |
+        ```python
+        from collections import defaultdict
+        
+        def calculate_bearing(lat1, lon1, lat2, lon2):
+            lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+            dlon = lon2 - lon1
+            y = np.sin(dlon) * np.cos(lat2)
+            x = np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(dlon)
+            initial_bearing = np.arctan2(y, x)
+            compass_bearing = (np.degrees(initial_bearing) + 360) % 360
+            return compass_bearing
+        
+        # Initialize dictionary to store segment frequencies
+        segment_frequencies = defaultdict(int)
+        
+        # Merge stop_times with stops to get stop coordinates
+        stop_times_with_coords = pd.merge(feed.stop_times, feed.stops[['stop_id', 'stop_lat', 'stop_lon']], 
+                                          on='stop_id', how='left')
+        
+        # Group by trip_id and sort by stop_sequence
+        grouped = stop_times_with_coords.sort_values(['trip_id', 'stop_sequence']).groupby('trip_id')
+        
+        # Process each trip
+        for trip_id, trip_stops in grouped:
+            # Calculate bearings for each segment in the trip
+            for i in range(len(trip_stops) - 1):
+                start = trip_stops.iloc[i]
+                end = trip_stops.iloc[i+1]
+        
+                # Skip if start and end coordinates are the same
+                if (start['stop_lat'] == end['stop_lat']) and (start['stop_lon'] == end['stop_lon']):
+                    continue
+        
+                bearing = calculate_bearing(start['stop_lat'], start['stop_lon'],
+                                            end['stop_lat'], end['stop_lon'])
+        
+                # Round bearing to nearest 10 degrees
+                rounded_bearing = round(bearing / 10) * 10
+        
+                # Increment frequency for this direction
+                segment_frequencies[rounded_bearing] += 1
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(list(segment_frequencies.items()), columns=['Direction', 'Frequency'])
+        
+        # Create polar chart
+        fig = px.bar_polar(df, r="Frequency", theta="Direction",
+                           color="Frequency", template="plotly_white",
+                           color_continuous_scale=px.colors.sequential.Plasma)
+        
+        fig.update_layout(
+            title="Frequency of Route Segments by Direction",
+            polar=dict(
+                radialaxis=dict(showticklabels=True, ticks=''),
+                angularaxis=dict(showticklabels=True, ticks='outside',
+                                 tickvals=list(range(0, 360, 30)),
+                                 ticktext=['N', '30°', '60°', 'E', '120°', '150°', 
+                                           'S', '210°', '240°', 'W', '300°', '330°'])
+            )
+        )
+        
+        # Store results
+        result = {
+            "answer": "A polar chart visualizing the frequency of route segments by their direction has been created.",
+            "additional_info": "The chart shows the distribution of route segments across different compass directions. Each bar represents a 10-degree range of directions, and the length of the bar indicates the frequency of segments in that direction. A segment is defined as the section between two consecutive stops on a trip.",
+            "plot": fig
+        }
+        
+        # Note: The actual plot object is stored in result['plot']
+        ```
+
+example_30:
+    feed: SFMTA
+    question: Show the distribution of trip service time for the routes Fulton and Church using a violin plot
+    answer: |
+        ```python
+        # Find the route IDs for Fulton and Church routes using fuzzy matching
+        route1 = find_route(feed, "Fulton")
+        route2 = find_route(feed, "Church") 
+        
+        if route1 is None or route2 is None:
+            result = {
+                'answer': "Could not find one or both routes. Please check the route names.",
+                'additional_info': "Try using the exact route names from the GTFS feed."
+            }
+        else:
+            # Get all trips for these routes
+            trips = feed.trips[feed.trips.route_id.isin([route1.route_id, route2.route_id])]
+        
+            # Get stop times for these trips
+            stop_times = feed.stop_times[feed.stop_times.trip_id.isin(trips.trip_id)]
+        
+            # Calculate trip duration for each trip
+            trip_durations = []
+            trip_routes = []
+        
+            for trip_id in stop_times.trip_id.unique():
+                trip_stops = stop_times[stop_times.trip_id == trip_id].sort_values('stop_sequence')
+                if len(trip_stops) > 0:
+                    duration = (trip_stops.arrival_time.max() - trip_stops.arrival_time.min())/60 # Convert to minutes
+                    route_id = trips[trips.trip_id == trip_id].route_id.iloc[0]
+                    route_name = feed.routes[feed.routes.route_id == route_id].route_long_name.iloc[0]
+                    trip_durations.append(duration)
+                    trip_routes.append(route_name)
+        
+            # Create DataFrame for plotting
+            plot_df = pd.DataFrame({
+                'Duration (minutes)': trip_durations,
+                'Route': trip_routes
+            })
+        
+            # Create violin plot
+            fig = px.violin(plot_df, 
+                            x='Route', 
+                            y='Duration (minutes)',
+                            box=True,
+                            points="all",
+                            title='Distribution of Trip Duration by Route',
+                            color='Route')
+        
+            # Update layout
+            fig.update_layout(
+                showlegend=True,
+                xaxis_title="Route Name",
+                yaxis_title="Trip Duration (minutes)"
+            )
+        
+            result = {
+                'answer': f"Created violin plot showing trip duration distribution for {route1.route_long_name} and {route2.route_long_name} routes",
+                'additional_info': f"The plot shows the distribution of trip durations in minutes. Each point represents an individual trip.",
+                'plot': fig
+            }
+        
+        # Output: Dictionary containing answer, additional info and plotly figure object
+        ```
+
+example_31:
+    feed: DART
+    question: Create a horizontal bar chart with the number of trips in the days of the week. Stack by the route and represented by route color
+    answer: |
+        ```python
+        # Ensure we have the necessary data
+        if not all(hasattr(feed, attr) for attr in ['trips', 'routes', 'calendar']):
+            raise ValueError("Missing required GTFS files: trips, routes, or calendar")
+        
+        # Merge trips with calendar to get day information
+        trips_with_days = pd.merge(feed.trips, feed.calendar, on='service_id')
+        
+        # Create a day mapping
+        day_mapping = {
+            'monday': 'Monday',
+            'tuesday': 'Tuesday',
+            'wednesday': 'Wednesday',
+            'thursday': 'Thursday',
+            'friday': 'Friday',
+            'saturday': 'Saturday',
+            'sunday': 'Sunday'
+        }
+        
+        # Melt the dataframe to get day-wise data
+        melted_trips = pd.melt(
+            trips_with_days,
+            id_vars=['trip_id', 'route_id'],
+            value_vars=day_mapping.keys(),
+            var_name='day',
+            value_name='operates'
+        )
+        
+        # Filter out non-operating days and map day names
+        melted_trips = melted_trips[melted_trips['operates'] == 1]
+        melted_trips['day'] = melted_trips['day'].map(day_mapping)
+        
+        # Count trips per day and route
+        trip_counts = melted_trips.groupby(['day', 'route_id']).size().reset_index(name='trip_count')
+        
+        # Merge with routes to get colors
+        trip_counts = pd.merge(trip_counts, feed.routes[['route_id', 'route_color']], on='route_id')
+        
+        # Fill missing colors with a default
+        trip_counts['route_color'] = '#' + trip_counts['route_color'].fillna('CCCCCC')
+        
+        # Create custom color sequence
+        color_sequence = trip_counts['route_color'].unique()
+        
+        # Create the horizontal bar chart
+        fig = px.bar(
+            trip_counts,
+            x='trip_count',
+            y='day',
+            color='route_id',
+            orientation='h',
+            color_discrete_sequence=color_sequence,
+            labels={'trip_count': 'Number of Trips', 'day': 'Day of Week', 'route_id': 'Route ID'},
+            title='Number of Trips by Day of Week and Route',
+            height=600
+        )
+        
+        # Customize the layout
+        fig.update_layout(
+            barmode='stack',
+            yaxis={'categoryorder': 'array', 'categoryarray': list(day_mapping.values())},
+            legend_title_text='Route ID'
+        )
+        
+        # Store the result
+        result = {
+            'answer': "Horizontal bar chart created showing the number of trips for each day of the week, stacked by route and represented by route color.",
+            'additional_info': "The chart displays the trip count for each day, with bars stacked by route. Each route is represented by its designated color, or a default gray if no color is specified.",
+            'plot': fig
+        }
+        ```
+
+example_32:
+    feed: DART
+    category: Temporal Analysis
+    question: Create a GANTT chart showing McKinney Avenue Trolley trips from 6-9 AM today, direction 1, sorted by start time
+    answer: |
+        ```python
+        from datetime import datetime, time, timedelta
+        
+        # Get current date
+        current_date = datetime.now().date()
+        
+        # Find the McKinney Avenue Trolley route
+        route = find_route(feed, "McKinney Avenue Trolley")
+        if route is None:
+            raise ValueError("McKinney Avenue Trolley route not found")
+        
+        route_id = route.route_id
+        
+        # Get the service_ids for today
+        today_services = feed.calendar[(feed.calendar[current_date.strftime('%A').lower()] == 1) & 
+                                       (feed.calendar['start_date'] <= current_date) & 
+                                       (feed.calendar['end_date'] >= current_date)]['service_id'].tolist()
+        
+        # Check for service exceptions
+        exceptions = feed.calendar_dates[feed.calendar_dates['date'] == current_date]
+        today_services.extend(exceptions[exceptions['exception_type'] == 1]['service_id'].tolist())
+        today_services = list(set(today_services) - set(exceptions[exceptions['exception_type'] == 2]['service_id'].tolist()))
+        
+        # Filter trips for the route, direction, and service
+        trips = feed.trips[(feed.trips['route_id'] == route_id) & 
+                           (feed.trips['direction_id'] == 1) & 
+                           (feed.trips['service_id'].isin(today_services))]
+        
+        # Get stop times for these trips
+        stop_times = feed.stop_times[feed.stop_times['trip_id'].isin(trips['trip_id'])]
+        
+        # Filter for trips starting between 6 AM and 9 AM
+        start_time = 6 * 3600  # 6 AM in seconds
+        end_time = 9 * 3600  # 9 AM in seconds
+        
+        trip_start_times = stop_times.groupby('trip_id')['departure_time'].min()
+        filtered_trips = trip_start_times[(trip_start_times >= start_time) & (trip_start_times < end_time)]
+        
+        # Prepare data for Gantt chart
+        gantt_data = []
+        for trip_id, start_time in filtered_trips.sort_values().items():
+            trip_stops = stop_times[stop_times['trip_id'] == trip_id].sort_values('stop_sequence')
+            end_time = trip_stops['arrival_time'].max()
+        
+            gantt_data.append({
+                'Trip': trip_id,
+                'Start': datetime.combine(current_date, time()) + timedelta(seconds=int(start_time)),
+                'Finish': datetime.combine(current_date, time()) + timedelta(seconds=int(end_time))
+            })
+        
+        df_gantt = pd.DataFrame(gantt_data)
+        
+        # Create Gantt chart
+        fig = px.timeline(df_gantt, x_start="Start", x_end="Finish", y="Trip", color="Trip",
+                          title="McKinney Avenue Trolley Trips (6-9 AM, Direction 1)",
+                          labels={"Trip": "Trip ID"},
+                          color_discrete_sequence=px.colors.qualitative.Plotly)
+        
+        fig.update_yaxes(autorange="reversed")
+        fig.update_layout(showlegend=False)
+        
+        # Prepare the result
+        result = {
+            "answer": f"Created a Gantt chart for {len(df_gantt)} McKinney Avenue Trolley trips between 6-9 AM today, direction 1.",
+            "additional_info": f"The chart shows trips starting from {df_gantt['Start'].min().strftime('%I:%M %p')} to {df_gantt['Start'].max().strftime('%I:%M %p')}.",
+            "plot": fig
+        }
+        ```
+
+example_33:
+    feed: SFMTA
+    question: Create a heatmap showing the distance between consecutive stops (stop spacings) for each route in the feed.
+    answer: |
+        ```python
+        def create_stop_spacing_heatmap_with_shapes(feed):
+            # Define categorical bins and colors
+            bins = [0, 50, 100, 200, 500, 1000, 2000, float('inf')]
+            labels = ['0-50m', '50-100m', '100-200m', '200-500m', '500-1000m', '1-2km', '>2km']
+        
+            # Use distinct colors for categories
+            colors = ['#440154', '#404387', '#29788E', '#22A784', '#79D151', '#FDE724', '#FDE724']
+            color_dict = dict(zip(labels, colors))
+        
+            # Create base map
+            center_lat = feed.stops.stop_lat.mean()
+            center_lon = feed.stops.stop_lon.mean()
+            m = folium.Map(location=[center_lat, center_lon],
+                          zoom_start=12,
+                          tiles='CartoDB positron')
+        
+            # Create categorical legend
+            legend_html = '''
+            <div style="position: fixed; 
+                        bottom: 50px; right: 50px; width: 150px; height: 160px; 
+                        border:2px solid grey; z-index:9999; font-size:14px;
+                        background-color: white;
+                        padding: 10px;
+                        opacity: 0.8;">
+            <p style="margin-bottom: 5px"><b>Stop Spacing</b></p>
+            '''
+        
+            for label, color in color_dict.items():
+                legend_html += f'''
+                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                    <div style="background-color: {color}; 
+                                width: 20px; height: 3px; 
+                                margin-right: 5px;"></div>
+                    <div>{label}</div>
+                </div>'''
+            legend_html += '</div>'
+        
+            # Process each route
+            for route_info in feed.trips.groupby('route_id').first().reset_index().to_dict('records'):
+                shape_id = route_info['shape_id']
+                trip_id = route_info['trip_id']
+        
+                # Get ordered stops
+                stop_times = feed.stop_times[feed.stop_times.trip_id == trip_id].sort_values('stop_sequence')
+                stops = pd.merge(stop_times, feed.stops[['stop_id', 'stop_lat', 'stop_lon']], on='stop_id')
+        
+                # Get shape points
+                shape_points = feed.shapes[feed.shapes.shape_id == shape_id].sort_values('shape_pt_sequence')
+        
+                # Create LineString from shape points
+                shape_coords = list(zip(shape_points.shape_pt_lon, shape_points.shape_pt_lat))
+                route_line = shapely.geometry.LineString(shape_coords)
+        
+                # Process consecutive stops
+                for i in range(len(stops)-1):
+                    start_stop = stops.iloc[i]
+                    end_stop = stops.iloc[i+1]
+        
+                    # Create Point objects
+                    start_point = shapely.geometry.Point(start_stop.stop_lon, start_stop.stop_lat)
+                    end_point = shapely.geometry.Point(end_stop.stop_lon, end_stop.stop_lat)
+        
+                    # Project stops onto route line
+                    start_proj = route_line.interpolate(route_line.project(start_point))
+                    end_proj = route_line.interpolate(route_line.project(end_point))
+        
+                    # Get points along route segment
+                    segment_points = []
+                    curr_dist = route_line.project(start_point)
+                    while curr_dist <= route_line.project(end_point):
+                        point = route_line.interpolate(curr_dist)
+                        segment_points.append([point.y, point.x])
+                        curr_dist += 0.0001
+        
+                    # Calculate distance
+                    distance = geopy.distance.geodesic(
+                        (start_stop.stop_lat, start_stop.stop_lon),
+                        (end_stop.stop_lat, end_stop.stop_lon)
+                    ).meters
+        
+                    # Find category
+                    bin_idx = pd.cut([distance], bins=bins, labels=labels)[0]
+        
+                    # Draw segment
+                    if len(segment_points) > 1:
+                        folium.PolyLine(
+                            segment_points,
+                            color=color_dict[bin_idx],
+                            weight=3,
+                            opacity=0.8,
+                            popup=f"Distance: {distance:.0f}m"
+                        ).add_to(m)
+        
+            # Add legend to map
+            m.get_root().html.add_child(folium.Element(legend_html))
+        
+            result = {
+                'answer': 'Created stop spacing heatmap with categorical colors and custom legend',
+                'additional_info': 'Used distinct colors for each distance category with a fixed legend showing all categories',
+                'map': m
+            }
+        
+            return result
+        
+        # Create the heatmap
+        result = create_stop_spacing_heatmap_with_shapes(feed)
+        ```
