@@ -1,0 +1,426 @@
+version: 2
+
+models:
+  - name: agency
+    description: "GTFS agency.txt を統合したテーブル（フィード単位で gtfs_id を付与）"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子（配布元ディレクトリ名）"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: agency_id
+        description: "事業者ID"
+      - name: agency_name
+        description: "事業者名"
+      - name: agency_url
+        description: "事業者URL"
+      - name: agency_timezone
+        description: "事業者タイムゾーン"
+      - name: agency_lang
+        description: "言語コード"
+      - name: agency_phone
+        description: "電話番号"
+      - name: agency_fare_url
+        description: "運賃情報URL"
+      - name: agency_email
+        description: "連絡先メール"
+
+  - name: attributions
+    description: "GTFS attributions.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: attribution_id
+        description: "帰属情報ID（gtfs_idを前置して一意化）"
+      - name: agency_id
+        description: "関連する事業者ID"
+      - name: route_id
+        description: "関連する路線ID（gtfs_idを前置して一意化）"
+      - name: trip_id
+        description: "関連する便ID（gtfs_idを前置して一意化）"
+      - name: organization_name
+        description: "組織名"
+      - name: is_producer
+        description: "データ提供者フラグ"
+      - name: is_operator
+        description: "運行者フラグ"
+      - name: is_authority
+        description: "所管機関フラグ"
+      - name: attribution_url
+        description: "帰属URL"
+      - name: attribution_email
+        description: "帰属メール"
+      - name: attribution_phone
+        description: "帰属電話"
+
+  - name: calendar
+    description: "GTFS calendar.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: service_id
+        description: "運行日パターンID（gtfs_idを前置して一意化）"
+      - name: monday
+        description: "月曜運行(1/0)"
+      - name: tuesday
+        description: "火曜運行(1/0)"
+      - name: wednesday
+        description: "水曜運行(1/0)"
+      - name: thursday
+        description: "木曜運行(1/0)"
+      - name: friday
+        description: "金曜運行(1/0)"
+      - name: saturday
+        description: "土曜運行(1/0)"
+      - name: sunday
+        description: "日曜運行(1/0)"
+      - name: start_date
+        description: "有効開始日"
+      - name: end_date
+        description: "有効終了日"
+
+  - name: calendar_dates
+    description: "GTFS calendar_dates.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: service_id
+        description: "運行日パターンID（gtfs_idを前置して一意化）"
+      - name: date
+        description: "対象日"
+      - name: exception_type
+        description: "例外種別（追加/削除）"
+
+  - name: fare_attributes
+    description: "GTFS fare_attributes.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: fare_id
+        description: "運賃ID（gtfs_idを前置して一意化）"
+      - name: price
+        description: "運賃"
+      - name: currency_type
+        description: "通貨コード"
+      - name: payment_method
+        description: "支払方法"
+      - name: transfers
+        description: "乗継回数"
+      - name: agency_id
+        description: "対象事業者ID"
+      - name: transfer_duration
+        description: "乗継可能時間（秒）"
+
+  - name: fare_rules
+    description: "GTFS fare_rules.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: fare_id
+        description: "運賃ID（gtfs_idを前置して一意化）"
+      - name: route_id
+        description: "路線ID（gtfs_idを前置して一意化）"
+      - name: origin_id
+        description: "出発ゾーンID（gtfs_idを前置して一意化）"
+      - name: destination_id
+        description: "到着ゾーンID（gtfs_idを前置して一意化）"
+      - name: contains_id
+        description: "包含ゾーンID"
+
+  - name: feed_info
+    description: "GTFS feed_info.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: feed_publisher_name
+        description: "フィード提供者名"
+      - name: feed_publisher_url
+        description: "フィード提供者URL"
+      - name: feed_lang
+        description: "言語コード"
+      - name: feed_start_date
+        description: "フィード開始日"
+      - name: feed_end_date
+        description: "フィード終了日"
+      - name: feed_version
+        description: "フィードバージョン"
+      - name: feed_contact_email
+        description: "連絡先メール"
+      - name: feed_contact_url
+        description: "連絡先URL"
+
+  - name: frequencies
+    description: "GTFS frequencies.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: trip_id
+        description: "便ID（gtfs_idを前置して一意化）"
+      - name: start_time
+        description: "適用開始時刻"
+      - name: end_time
+        description: "適用終了時刻"
+      - name: headway_secs
+        description: "運行間隔（秒）"
+      - name: exact_times
+        description: "正確時刻フラグ"
+
+  - name: routes
+    description: "GTFS routes.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: route_id
+        description: "路線ID（gtfs_idを前置して一意化）"
+      - name: agency_id
+        description: "事業者ID"
+      - name: route_short_name
+        description: "路線短名"
+      - name: route_long_name
+        description: "路線長名"
+      - name: route_desc
+        description: "路線説明"
+      - name: route_type
+        description: "路線種別"
+      - name: route_url
+        description: "路線URL"
+      - name: route_color
+        description: "路線色"
+      - name: route_text_color
+        description: "路線テキスト色"
+      - name: route_sort_order
+        description: "表示順"
+      - name: continuous_pickup
+        description: "連続乗車可否"
+      - name: continuous_drop_off
+        description: "連続降車可否"
+      - name: network_id
+        description: "ネットワークID"
+
+  - name: shapes
+    description: "GTFS shapes.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: shape_id
+        description: "形状ID（gtfs_idを前置して一意化）"
+      - name: shape_pt_lat
+        description: "形状点 緯度"
+      - name: shape_pt_lon
+        description: "形状点 経度"
+      - name: shape_pt_sequence
+        description: "形状点 連番"
+      - name: shape_dist_traveled
+        description: "累積距離"
+
+  - name: stop_times
+    description: "GTFS stop_times.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: trip_id
+        description: "便ID（gtfs_idを前置して一意化）"
+      - name: arrival_time
+        description: "到着時刻"
+      - name: departure_time
+        description: "出発時刻"
+      - name: stop_id
+        description: "停留所ID（gtfs_idを前置して一意化）"
+      - name: stop_sequence
+        description: "停車順序"
+      - name: stop_headsign
+        description: "停留所行先表示"
+      - name: pickup_type
+        description: "乗車タイプ"
+      - name: drop_off_type
+        description: "降車タイプ"
+      - name: continuous_pickup
+        description: "連続乗車可否"
+      - name: continuous_drop_off
+        description: "連続降車可否"
+      - name: shape_dist_traveled
+        description: "累積距離"
+      - name: timepoint
+        description: "時刻点フラグ"
+
+  - name: stops
+    description: "GTFS stops.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: stop_id
+        description: "停留所ID（gtfs_idを前置して一意化）"
+      - name: stop_code
+        description: "停留所コード"
+      - name: stop_name
+        description: "停留所名"
+      - name: stop_desc
+        description: "停留所説明"
+      - name: stop_lat
+        description: "緯度"
+      - name: stop_lon
+        description: "経度"
+      - name: zone_id
+        description: "ゾーンID"
+      - name: stop_url
+        description: "停留所URL"
+      - name: location_type
+        description: "地点種別"
+      - name: parent_station
+        description: "親駅（停留所）ID"
+      - name: stop_timezone
+        description: "停留所タイムゾーン"
+      - name: wheelchair_boarding
+        description: "車いす乗降可否"
+      - name: level_id
+        description: "階層ID（gtfs_idを前置して一意化）"
+      - name: platform_code
+        description: "番線/のりばコード"
+
+  - name: transfers
+    description: "GTFS transfers.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: from_stop_id
+        description: "乗換元停留所ID（gtfs_idを前置して一意化）"
+      - name: to_stop_id
+        description: "乗換先停留所ID（gtfs_idを前置して一意化）"
+      - name: transfer_type
+        description: "乗換タイプ"
+      - name: min_transfer_time
+        description: "最小乗換時間（秒）"
+
+  - name: translations
+    description: "GTFS translations.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: table_name
+        description: "対象テーブル名"
+      - name: field_name
+        description: "対象フィールド名"
+      - name: language
+        description: "言語コード"
+      - name: translation
+        description: "翻訳文"
+      - name: record_id
+        description: "対象レコードID（gtfs_idを前置して一意化）"
+      - name: record_sub_id
+        description: "対象サブレコードID（gtfs_idを前置して一意化）"
+      - name: field_value
+        description: "原文（キー）"
+
+  - name: trips
+    description: "GTFS trips.txt を統合したテーブル"
+    columns:
+      - name: gtfs_id
+        description: "GTFSフィード識別子"
+        tests: [not_null]
+      - name: _path
+        description: "読み込み元ファイルパス（存在しない場合はNULL）"
+      - name: _missing
+        description: "読み込み元が欠損のプレースホルダ行ならTRUE"
+        tests: [not_null]
+      - name: route_id
+        description: "路線ID（gtfs_idを前置して一意化）"
+      - name: service_id
+        description: "運行日パターンID（gtfs_idを前置して一意化）"
+      - name: trip_id
+        description: "便ID（gtfs_idを前置して一意化）"
+      - name: trip_headsign
+        description: "行先表示"
+      - name: trip_short_name
+        description: "便短名"
+      - name: direction_id
+        description: "方向ID（gtfs_idを前置して一意化）"
+      - name: block_id
+        description: "ブロックID（gtfs_idを前置して一意化）"
+      - name: shape_id
+        description: "形状ID（gtfs_idを前置して一意化）"
+      - name: wheelchair_accessible
+        description: "車いす対応"
+      - name: bikes_allowed
+        description: "自転車持込可否"
