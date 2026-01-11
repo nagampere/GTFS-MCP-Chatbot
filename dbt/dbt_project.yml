@@ -33,8 +33,10 @@ models:
   gtfs_mcp:
     # Config indicated by + and applies to all files under models/example/
     row:
+      schema: row
       +materialized: table
     gtfs:
+      schema: gtfs
       +materialized: table
 
 vars:
