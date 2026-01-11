@@ -1,4 +1,6 @@
+*.env
 .venv
 .streamlit
 uv.lock
 __pycache__/
+logs/*
