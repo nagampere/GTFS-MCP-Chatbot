@@ -75,6 +75,13 @@ if not st.session_state.messages:
 with main:
     st.title("🐶ハチ公のりものレポート🐶")
     st.image("image.png", width='stretch')
+    # 詳しい説明スライドの表示
+    with st.popover("詳細はこちらをクリック"):
+        st.image("introduction1.jpg", width='content')
+        st.image("introduction2.jpg", width='content')
+        st.image("introduction3.jpg", width='content')
+        st.image("introduction4.jpg", width='content')
+        st.image("introduction5.jpg", width='content')
 
 
 # トークン制限・タイムアウト設定の入力
