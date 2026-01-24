@@ -11,18 +11,70 @@ from utils.block_renderer import render_blocks
 from utils.mcp_client import call_claude_with_motherduck_mcp
 from utils.rag_examples import build_rag_system_message
 from utils.loading_animation import show_loading_animation
+from utils.event_renderer import render_event_stream
 
-# APIキー等の設定
-ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
-MOTHERDUCK_TOKEN = st.secrets["MOTHERDUCK_TOKEN"]
-# システムプロンプト・クックブック読み込み
-system = open("prompts/system_gtfs.md").read()
-cookbook = open("gtfs/cookbook.md").read()
+
+# チャットエリアとプレビューエリアを分離
+main = st.container()
+sidebar = st.sidebar
+
+# タイトルと説明
+with main:
+    st.title("🐶ハチ公のりものレポート🐶")
+    st.image("image.png", width='stretch')
+    # 詳しい説明スライドの表示
+    with st.expander("詳細はこちらをクリック"):
+        st.image("introduction1.jpg", width='content')
+        st.image("introduction2.jpg", width='content')
+        st.image("introduction3.jpg", width='content')
+        st.image("introduction4.jpg", width='content')
+        st.image("introduction5.jpg", width='content')
+
+
+# トークン制限・タイムアウト設定の入力
+with sidebar:
+    st.header("設定")
+    demo = st.toggle("【期間限定】デモ版を使用", value=True, key="demo_mode_toggle", help="ODPT開催期間中のみ有効なデモ版を使用します。")
+    if demo:
+        st.info("デモ版では、Claude APIとMotherduckの利用料金は開発者が負担します。")
+        # APIキー等の設定
+        MOTHERDUCK_TOKEN = st.secrets["MOTHERDUCK_TOKEN"]
+        ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
+        CLAUDE_MODEL = "claude-sonnet-4-5"
+    else:
+        MOTHERDUCK_TOKEN = st.text_input("Motherduck Token", type="password", help="MotherduckのMCPトークンを入力してください。")
+        ANTHROPIC_API_KEY = st.text_input("Anthropic API Key", type="password", help="AnthropicのAPIキーを入力してください。")
+        CLAUDE_MODEL = st.selectbox("Claude Model", options=["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"], index=1, help="使用するClaudeモデルを選択してください。")
+    max_token = st.number_input("Max Tokens", value=10000, min_value=1, max_value=100000, step=1000)
+    timeout = st.number_input("Timeout (seconds)", value=180.0, min_value=1.0, max_value=600.0, step=10.0)
+
+# Anthropic APIの設定
+if not ANTHROPIC_API_KEY:
+    st.error("Anthropic API Keyが設定されていません。サイドバーで設定してください。")
+    st.stop()
+
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=timeout)
 # 料金（USD / 1M tokens）
-PRICE_INPUT_PER_MTOK = 3.0
-PRICE_OUTPUT_PER_MTOK = 15.0
-# MCP用ツール定義
-TOOLS = [
+price_input_per_mtok = {
+    "claude-sonnet-4-5": 3.0,
+    "claude-haiku-4-5": 1.0,
+    "claude-opus-4-5": 5.0,
+}[CLAUDE_MODEL]
+price_output_per_mtok = {
+    "claude-sonnet-4-5": 15.0,
+    "claude-haiku-4-5": 5.0,
+    "claude-opus-4-5": 25.0,
+}[CLAUDE_MODEL]
+# MCPサーバーとツールの定義
+mcp_servers = [
+    {
+        "type": "url",
+        "name": "motherduck",
+        "url": "https://api.motherduck.com/mcp",
+        "authorization_token": MOTHERDUCK_TOKEN,
+    }
+]
+tools = [
     # MotherDuck MCP（リモート）
     {
         "type": "mcp_toolset",
@@ -44,10 +96,11 @@ TOOLS = [
         },
     },
 ]
-
-# チャットエリアとプレビューエリアを分離
-main = st.container()
-sidebar = st.sidebar
+# システムプロンプト・クックブック読み込み
+with open("prompts/system_gtfs.md") as f:
+    system = f.read()
+with open("gtfs/cookbook.md") as f:
+    cookbook = f.read()
 
 # セッションステート初期化
 if "messages" not in st.session_state:
@@ -70,33 +123,6 @@ if not st.session_state.messages:
         }
     )
 
-
-# タイトルと説明
-with main:
-    st.title("🐶ハチ公のりものレポート🐶")
-    st.image("image.png", width='stretch')
-    # 詳しい説明スライドの表示
-    with st.expander("詳細はこちらをクリック"):
-        st.image("introduction1.jpg", width='content')
-        st.image("introduction2.jpg", width='content')
-        st.image("introduction3.jpg", width='content')
-        st.image("introduction4.jpg", width='content')
-        st.image("introduction5.jpg", width='content')
-
-
-# トークン制限・タイムアウト設定の入力
-with sidebar:
-    st.header("設定")
-    demo = st.toggle("【期間限定】デモ版を使用", value=True, key="demo_mode_toggle", help="ODPT開催期間中のみ有効なデモ版を使用します。")
-    if demo:
-        st.info("デモ版では、Claude APIとMotherduckの利用料金は開発者が負担します。")
-    else:
-        MOTHERDUCK_TOKEN = st.text_input("Motherduck Token", type="password", help="MotherduckのMCPトークンを入力してください。")
-        ANTHROPIC_API_KEY = st.text_input("Anthropic API Key", type="password", help="AnthropicのAPIキーを入力してください。")
-        CLAUDE_MODEL = st.selectbox("Claude Model", options=["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"], index=1, help="使用するClaudeモデルを選択してください。")
-    max_token = st.number_input("Max Tokens", value=10000, min_value=1, max_value=100000, step=1000)
-    timeout = st.number_input("Timeout (seconds)", value=180.0, min_value=1.0, max_value=600.0, step=10.0)
-
 # チャット履歴表示エリア  
 with main:
     # 履歴の表示
@@ -106,7 +132,7 @@ with main:
             if message["role"] == "user":
                 st.markdown(message["content"])
             else:
-                render_usage_and_cost(message["content"].get("usage", {}), PRICE_INPUT_PER_MTOK, PRICE_OUTPUT_PER_MTOK)
+                render_usage_and_cost(message["content"].get("usage", {}), price_input_per_mtok, price_output_per_mtok)
                 render_blocks(message["content"].get("content", []), main, key_prefix=f"msg{i}_")
 
 # ユーザ入力（Enterで送信しない: text_area + ボタン）
@@ -146,16 +172,24 @@ if send:
                     messages.append({"role": "system", "content": rag_context})
 
                 messages.append({"role": "user", "content": prompt})
-                response = call_claude_with_motherduck_mcp(
+
+                stream_generator = call_claude_with_motherduck_mcp(
                     messages,
-                    ANTHROPIC_API_KEY,
-                    MOTHERDUCK_TOKEN,
-                    CLAUDE_MODEL if not demo else "claude-sonnet-4-5",
-                    TOOLS,
+                    client,
+                    CLAUDE_MODEL,
                     max_token,
-                    timeout,
+                    tools,
+                    mcp_servers,
                 )
+                
+                response = render_event_stream(stream_generator)
+                
+                # If we didn't get a final message, create a basic one
+                if response is None:
+                    response = {"content": [{"type": "text", "text": ""}], "usage": {}}
+                
                 loading.empty()
+                
             except AnthropicAPIError as e:
                 try:
                     loading.empty()
@@ -183,7 +217,7 @@ if send:
             # レスポンスの表示
             st.session_state.messages.append({"role": "assistant", "content": response})
             # 使用量とコストの表示
-            render_usage_and_cost(response.get("usage", {}), PRICE_INPUT_PER_MTOK, PRICE_OUTPUT_PER_MTOK)
+            render_usage_and_cost(response.get("usage", {}), price_input_per_mtok, price_output_per_mtok)
             # ブロックのレンダリング
             blocks = response.get("content") or []
             render_blocks(blocks, main, key_prefix=f"msg{len(st.session_state.messages) - 1}_")

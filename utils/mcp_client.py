@@ -105,16 +105,32 @@ def _split_system_messages(messages: list[dict]) -> tuple[str, list[dict]]:
 
     return "\n\n".join(system_parts).strip(), filtered
 
-def call_claude_with_motherduck_mcp(messages: list[dict], anthropic_key: str, motherduck_token: str, claude_model: str, tools: List, max_token: int=1000, timeout: int|float = 240) -> dict:
+def call_claude_with_motherduck_mcp(
+        messages: list[dict],
+        client: anthropic.Anthropic, 
+        claude_model: str,
+        max_token: int,
+        tools: List,
+        mcp_servers: list[dict],
+    ) -> Any:
+    '''
+    MCP (MotherDuck Connector for Claude) を使用して、Anthropic Claude モデルにメッセージを送信し、ストリーミングレスポンスを受け取ります。
+    Args:
+        messages (list[dict]): 送信するメッセージのリスト。各メッセージは辞書形式で、'role' と 'content' キーを含む必要があります。
+        client (anthropic.Anthropic): Anthropic API クライアントのインスタンス。
+        claude_model (str): 使用するClaudeモデルの名前。
+        max_token (int): レスポンスで生成される最大トークン数。
+        tools (List): MCPで使用するツールのリスト。
+        mcp_servers (list[dict]): MCPサーバーの設定リスト。
+    '''
 
-    client = anthropic.Anthropic(api_key=anthropic_key, timeout=timeout)
 
     system, filtered_messages = _split_system_messages(messages)
     if not filtered_messages:
         raise ValueError("messages must include at least one non-system message")
 
     try:
-        msg = client.messages.create(
+        with client.messages.stream(
             model=claude_model,
             max_tokens=max_token,
             system=system or None,
@@ -124,19 +140,51 @@ def call_claude_with_motherduck_mcp(messages: list[dict], anthropic_key: str, mo
                 "anthropic-beta": "mcp-client-2025-11-20",
             },
             extra_body={
-                "mcp_servers": [
-                    {
-                        "type": "url",
-                        "name": "motherduck",
-                        "url": "https://api.motherduck.com/mcp",
-                        "authorization_token": motherduck_token,
-                    }
-                ],
+                "mcp_servers": mcp_servers,
                 "tools": tools,
                 "tool_choice": {"type": "auto"},
             },
-        )
+        ) as stream:
+            # Process all stream events
+            for event in stream:
+                event_type = getattr(event, 'type', None)
+                
+                # Handle content_block_start for tool_use, mcp_tool_use, and mcp_tool_result
+                if event_type == 'content_block_start':
+                    content_block = getattr(event, 'content_block', None)
+                    if content_block:
+                        block_type = getattr(content_block, 'type', None)
+                        if block_type in ('tool_use', 'mcp_tool_use'):
+                            # Yield tool_use block immediately for real-time display
+                            tool_block = {
+                                'type': block_type,
+                                'id': getattr(content_block, 'id', None),
+                                'name': getattr(content_block, 'name', None),
+                                'input': getattr(content_block, 'input', {}),
+                                'server_name': getattr(content_block, 'server_name', None),
+                            }
+                            yield {'event': 'tool_use', 'block': tool_block}
+                        elif block_type in ('tool_result', 'mcp_tool_result'):
+                            # Yield tool_result block immediately for real-time display
+                            result_block = {
+                                'type': block_type,
+                                'tool_use_id': getattr(content_block, 'tool_use_id', None),
+                                'is_error': getattr(content_block, 'is_error', False),
+                                'content': getattr(content_block, 'content', []),
+                            }
+                            yield {'event': 'tool_result', 'block': result_block}
+                
+                # Handle text deltas for streaming text display
+                elif event_type == 'content_block_delta':
+                    delta = getattr(event, 'delta', None)
+                    if delta and getattr(delta, 'type', None) == 'text_delta':
+                        text = getattr(delta, 'text', '')
+                        if text:
+                            yield text
+            
+            # Yield the final message object after streaming completes
+            final_message = stream.get_final_message()
+            yield {'event': 'final_message', 'message': _to_dict(final_message)}
+
     except Exception as e:
         _raise_anthropic_error(e)
-
-    return _to_dict(msg)
