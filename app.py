@@ -114,6 +114,8 @@ if not st.session_state.messages:
         "- 例1: 『東京駅から半径300m以内にいくつバス停がありますか？』\n"
         "- 例2: 『六本木駅からバスに乗ってどこまで行けますか？』\n"
         "- 例3: 『バス停「浅草雷門」についてのHTMLレポートを作成してください。』\n"
+        "- 例4: 『吉祥寺駅周辺について、「GTFSから見た過ごしやすさ」についてレポートをまとめてください。』\n"
+        "- 例5: 『都営バスで最も利用者が多いと考えられる路線の路線図を描いて、その理由を考察して下さい。』\n\n"
         "\n"
     )
     st.session_state.messages.append(
@@ -138,7 +140,7 @@ with main:
 # ユーザ入力（Enterで送信しない: text_area + ボタン）
 with main:
     st.divider()
-    st.caption("Enterは改行、送信はボタン")
+    st.caption("Enterは改行、送信はボタンorEnter+Ctrl/Cmd")
     with st.form("chat_form", clear_on_submit=True):
         prompt = st.text_area(
             "入力",

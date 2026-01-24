@@ -51,5 +51,50 @@
 - `gtfs_stop_times_norm(...)`：時刻正規化（秒のまま、日跨ぎ許容）
 - `gtfs_departures(stop_id, service_date, dep_sec, route_id, trip_id, direction_id)`：発車イベント
 
+## 地図・路線図描画のポイント
+- 描画は **Leaflet** を基本に行う。
+- 地図背景は OpenStreetMap を利用する。
+- 路線図は `shapes` を優先し、ない場合は停留所を結ぶ。
+- 停留所は marker で描画し、必要に応じてポップアップやラベルを付与する。
+- Vega-Lite は地図路線図描画においては推奨しない（統計グラフなどには利用可）。
+
+### データ量制限の回避（重要）
+Motherduck MCPには出力サイズ制限（0MB制限により約540行）があるため、shapesテーブルから大量のデータを取得する際は以下の対策を必ず講じる：
+
+1. **特定路線への絞り込み**：
+   - `WHERE shape_id IN (SELECT DISTINCT shape_id FROM trips WHERE route_id = '特定路線ID')`
+   - 複数路線でも必要最小限（1〜3路線程度）に絞る
+
+2. **座標点の間引き**：
+   - `WHERE shape_pt_sequence % N = 0`（Nは2〜5程度）で等間隔サンプリング
+   - または `WHERE shape_pt_sequence <= 100` で上限を設ける
+
+3. **空間範囲での絞り込み**：
+   - `WHERE shape_pt_lat BETWEEN lat_min AND lat_max AND shape_pt_lon BETWEEN lon_min AND lon_max`
+   - ユーザーが指定した地域や停留所周辺に限定
+
+4. **GROUP BYでの集約**：
+   - 詳細な座標が不要な場合、`GROUP BY shape_id` で代表点のみ取得
+   - または LineString を直接生成して1行にまとめる
+
+5. **推奨クエリパターン**：
+   ```sql
+   SELECT shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence
+   FROM shapes
+   WHERE shape_id IN (
+     SELECT DISTINCT shape_id 
+     FROM trips 
+     WHERE route_id = '特定路線' 
+     LIMIT 3
+   )
+   AND shape_pt_sequence % 3 = 0  -- 3点に1点を取得
+   ORDER BY shape_id, shape_pt_sequence
+   LIMIT 500
+   ```
+
+6. **代替手段**：
+   - shapesが大きすぎる場合、主要停留所（`stop_sequence % 5 = 0`など）を結ぶ簡易路線図に切り替える
+   - `trips` と `stop_times` から `stops` の座標を取得する方が軽量な場合がある
+
 ---
 このCookbookは、生成プロンプト（`generated_prompt.md`）のデータ型・GTFS作法を抽出して整理したものです。
